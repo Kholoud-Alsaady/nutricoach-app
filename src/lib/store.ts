@@ -43,7 +43,7 @@ export interface DemoState {
   members: DemoMemberSpec[];
   activeMemberId: string;
   activeRole: Role;
-  activeTab: "today" | "plan" | "progress" | "coach" | "roi" | "profile" | "ask";
+  activeTab: "today" | "plan" | "progress" | "ask" | "profile";
   today: string;
   profiles: Record<string, Profile>;
   targets: Record<string, Targets>;

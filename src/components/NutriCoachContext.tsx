@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { addDays, todayISO } from "@/lib/dates";
 import { findFood, FOODS, foodToSnapshot } from "@/lib/foods";
-import { impactFor, measureImpact, modelRoi } from "@/lib/impact";
+import { impactFor, measureImpact } from "@/lib/impact";
 import { caloriesFromMacros, normalizeMacros, scaleMacros, subtractMacros, sumMacros, verifyMeals } from "@/lib/nutrition";
 import { baseName, planSlots, prefsFromProfile, suggestMeals } from "@/lib/planner";
 import { createInitialDemoState, type DemoState } from "@/lib/store";
@@ -55,7 +55,6 @@ interface NutriCoachContextType {
   activeMessages: MemberMessage[];
   allMessages: Record<string, MemberMessage[]>;
   measuredImpact: ReturnType<typeof measureImpact>;
-  modeledRoi: ReturnType<typeof modelRoi>;
 
   // Member Management
   setActiveMember: (id: string) => void;
@@ -148,7 +147,6 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
   );
 
   const measuredImpact = measureImpact(state.actions, state.aiUsage, state.gym, state.members.length);
-  const modeledRoi = modelRoi(state.gym);
 
   const setActiveMember = (id: string) => {
     setState((prev) => ({ ...prev, activeMemberId: id, activeRole: "member" }));
@@ -958,7 +956,6 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
         pendingProposals,
         recentAgentActions,
         measuredImpact,
-        modeledRoi,
         activeMessages,
         allMessages,
         setActiveMember,

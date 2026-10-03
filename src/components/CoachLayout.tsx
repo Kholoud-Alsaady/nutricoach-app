@@ -2,29 +2,26 @@
 
 import React, { useState } from "react";
 import {
+  AlertCircle,
   ArrowLeft,
-  Award,
   CheckCircle2,
   Clock,
   Eye,
   Flame,
+  LayoutDashboard,
   LineChart,
   MessageSquare,
-  RefreshCw,
   Send,
   Sparkles,
-  TrendingUp,
-  UserCheck,
   Users,
   Utensils,
 } from "lucide-react";
 import { useNutriCoach } from "./NutriCoachContext";
-import { ImpactRoiView } from "./ImpactRoiView";
 import { timeAgo } from "@/lib/dates";
 
 export function CoachLayout() {
-  const { state, allMessages, setActiveMember, setCurrentView, approveProposal, rejectProposal, sendCoachReply, measuredImpact } = useNutriCoach();
-  const [coachTab, setCoachTab] = useState<"triage" | "questions" | "audit" | "roi">("triage");
+  const { state, allMessages, setActiveMember, setCurrentView, approveProposal, rejectProposal, sendCoachReply } = useNutriCoach();
+  const [coachTab, setCoachTab] = useState<"overview" | "triage" | "questions" | "audit">("overview");
   const [selectedMemberId, setSelectedMemberId] = useState<string>(state.members[0].id);
   const [coachInput, setCoachInput] = useState("");
 
@@ -94,6 +91,18 @@ export function CoachLayout() {
 
             <nav className="space-y-0.5">
               <button
+                onClick={() => setCoachTab("overview")}
+                className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  coachTab === "overview"
+                    ? "bg-surface text-ink-primary shadow-hairline border border-border"
+                    : "text-ink-secondary hover:text-ink-primary hover:bg-surface-subtle"
+                }`}
+              >
+                <LayoutDashboard className={`w-4 h-4 ${coachTab === "overview" ? "text-brand" : "text-ink-muted"}`} />
+                <span>Overview</span>
+              </button>
+
+              <button
                 onClick={() => setCoachTab("triage")}
                 className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${
                   coachTab === "triage"
@@ -101,8 +110,8 @@ export function CoachLayout() {
                     : "text-ink-secondary hover:text-ink-primary hover:bg-surface-subtle"
                 }`}
               >
-                <Users className={`w-4 h-4 ${coachTab === "triage" ? "text-brand" : "text-ink-muted"}`} />
-                <span>Member Triage</span>
+                <AlertCircle className={`w-4 h-4 ${coachTab === "triage" ? "text-brand" : "text-ink-muted"}`} />
+                <span>Needs Attention</span>
                 <span className="ml-auto text-[10px] px-1.5 py-0.2 bg-brand-tint text-brand rounded font-medium">3</span>
               </button>
 
@@ -129,18 +138,6 @@ export function CoachLayout() {
               >
                 <Clock className={`w-4 h-4 ${coachTab === "audit" ? "text-brand" : "text-ink-muted"}`} />
                 <span>Agent Activity Log</span>
-              </button>
-
-              <button
-                onClick={() => setCoachTab("roi")}
-                className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                  coachTab === "roi"
-                    ? "bg-surface text-ink-primary shadow-hairline border border-border"
-                    : "text-ink-secondary hover:text-ink-primary hover:bg-surface-subtle"
-                }`}
-              >
-                <TrendingUp className={`w-4 h-4 ${coachTab === "roi" ? "text-brand" : "text-ink-muted"}`} />
-                <span>Gym ROI & Economics</span>
               </button>
             </nav>
           </div>
@@ -205,54 +202,101 @@ export function CoachLayout() {
             </div>
           </div>
 
-          {/* Team Consistency & Adherence Diagram (Minimalist SVG / CSS Chart) */}
-          <div className="bg-surface rounded-lg border border-border p-5 shadow-card space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-xs font-medium text-ink-primary">Team Consistency & Weekly Adherence</h3>
-                <p className="text-[11px] text-ink-muted">Gym aggregate macro and meal consistency over the past 7 days</p>
-              </div>
-              <div className="text-right">
-                <span className="text-xs font-semibold text-brand">83.7%</span>
-                <span className="text-[11px] text-ink-muted"> weekly avg</span>
-              </div>
-            </div>
-
-            {/* Minimal Bar Chart */}
-            <div className="h-36 pt-4 flex items-end justify-between gap-3 border-b border-border pb-2 px-2">
-              {weekData.map((d) => (
-                <div key={d.day} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
-                  <span className="text-[10px] font-medium text-ink-secondary">{d.rate}%</span>
-                  <div
-                    className={`w-full max-w-[48px] rounded-t transition-all duration-300 ${
-                      d.rate >= 80 ? "bg-brand" : "bg-status-warning"
-                    }`}
-                    style={{ height: `${(d.rate / 100) * 85}px` }}
-                  />
-                  <span className="text-[10px] text-ink-muted uppercase">{d.day}</span>
+          {/* 1. OVERVIEW TAB */}
+          {coachTab === "overview" && (
+            <div className="space-y-6">
+              {/* Team Consistency & Adherence Diagram */}
+              <div className="bg-surface rounded-lg border border-border p-5 shadow-card space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-xs font-medium text-ink-primary">Team Consistency & Weekly Adherence</h3>
+                    <p className="text-[11px] text-ink-muted">Gym aggregate macro and meal consistency over the past 7 days</p>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-xs font-semibold text-brand">83.7%</span>
+                    <span className="text-[11px] text-ink-muted"> weekly avg</span>
+                  </div>
                 </div>
-              ))}
-            </div>
 
-            <div className="flex items-center justify-between text-[11px] text-ink-muted pt-1">
-              <div className="flex items-center gap-4">
-                <span className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded bg-brand" /> On Target (≥80%)
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded bg-status-warning" /> Weekend Deviation Dip
-                </span>
+                {/* Minimal Bar Chart */}
+                <div className="h-36 pt-4 flex items-end justify-between gap-3 border-b border-border pb-2 px-2">
+                  {weekData.map((d) => (
+                    <div key={d.day} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
+                      <span className="text-[10px] font-medium text-ink-secondary">{d.rate}%</span>
+                      <div
+                        className={`w-full max-w-[48px] rounded-t transition-all duration-300 ${
+                          d.rate >= 80 ? "bg-brand" : "bg-status-warning"
+                        }`}
+                        style={{ height: `${(d.rate / 100) * 85}px` }}
+                      />
+                      <span className="text-[10px] text-ink-muted uppercase">{d.day}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex items-center justify-between text-[11px] text-ink-muted pt-1">
+                  <div className="flex items-center gap-4">
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded bg-brand" /> On Target (≥80%)
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded bg-status-warning" /> Weekend Deviation Dip
+                    </span>
+                  </div>
+                  <span>Automated Sunday rebalancing scheduled</span>
+                </div>
               </div>
-              <span>Automated Sunday rebalancing scheduled</span>
-            </div>
-          </div>
 
-          {/* Tab Views */}
+              {/* Summary Worklist Section */}
+              <div className="bg-surface rounded-lg border border-border p-4 shadow-card space-y-3">
+                <div className="flex items-center justify-between border-b border-border pb-2">
+                  <h3 className="text-xs font-semibold text-ink-primary">Active Members Triage Preview</h3>
+                  <button
+                    onClick={() => setCoachTab("triage")}
+                    className="text-xs font-medium text-brand hover:underline"
+                  >
+                    View All Triage Queue →
+                  </button>
+                </div>
+
+                <div className="space-y-2">
+                  {triageMembers.map((item) => (
+                    <div
+                      key={item.member.id}
+                      className="p-3 rounded-lg border border-border bg-surface-subtle flex items-center justify-between gap-3"
+                    >
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-xs text-ink-primary">{item.member.name}</span>
+                          <span className={`text-[10px] px-1.5 py-0.2 rounded font-medium ${item.badgeColor}`}>
+                            {item.badge}
+                          </span>
+                        </div>
+                        <p className="text-xs text-ink-secondary">{item.detail}</p>
+                      </div>
+
+                      <button
+                        onClick={() => handleReviewMember(item.member.id)}
+                        className="text-xs font-medium text-brand bg-brand-tint hover:bg-[#D5E6D2] px-2.5 py-1 rounded border border-[#D5E6D2] transition-colors"
+                      >
+                        Inspect
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 2. NEEDS ATTENTION / TRIAGE TAB */}
           {coachTab === "triage" && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-xs font-medium text-ink-primary">Priority Triage Queue</h3>
-                <span className="text-[11px] text-ink-muted">Immediate action required</span>
+                <div>
+                  <h3 className="text-xs font-semibold text-ink-primary">Priority Triage Queue</h3>
+                  <p className="text-[11px] text-ink-muted">Immediate behavioral deviations and automated rebalance proposals</p>
+                </div>
+                <span className="text-[11px] text-ink-muted">3 athletes flagged</span>
               </div>
 
               <div className="space-y-3">
@@ -285,6 +329,7 @@ export function CoachLayout() {
             </div>
           )}
 
+          {/* 3. MEMBER QUESTIONS TAB */}
           {coachTab === "questions" && (
             <div className="bg-surface rounded-lg border border-border shadow-card overflow-hidden">
               <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
@@ -439,6 +484,7 @@ export function CoachLayout() {
             </div>
           )}
 
+          {/* 4. AGENT ACTIVITY LOG TAB */}
           {coachTab === "audit" && (
             <div className="bg-surface rounded-lg border border-border shadow-card overflow-hidden">
               <div className="px-4 py-3 border-b border-border flex items-center justify-between">
@@ -512,8 +558,6 @@ export function CoachLayout() {
               </div>
             </div>
           )}
-
-          {coachTab === "roi" && <ImpactRoiView />}
         </main>
       </div>
     </div>

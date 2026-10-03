@@ -3,20 +3,13 @@
 import React, { useState } from "react";
 import {
   ArrowRight,
-  Bot,
   CheckCircle2,
   ChevronRight,
-  Flame,
-  LineChart,
   Plus,
   Sparkles,
-  TrendingUp,
-  User,
-  UserCheck,
   Users,
   Utensils,
   X,
-  Zap,
 } from "lucide-react";
 import { useNutriCoach } from "./NutriCoachContext";
 
@@ -118,7 +111,7 @@ export function LandingPortal() {
               <div className="flex flex-wrap gap-1.5 pt-1 text-[11px] text-ink-secondary">
                 <span className="bg-surface-subtle px-2 py-0.5 rounded border border-border">Team Adherence Chart</span>
                 <span className="bg-surface-subtle px-2 py-0.5 rounded border border-border">Exception Triage</span>
-                <span className="bg-surface-subtle px-2 py-0.5 rounded border border-border">Gym ROI Model</span>
+                <span className="bg-surface-subtle px-2 py-0.5 rounded border border-border">Activity Audit Log</span>
               </div>
             </div>
 
@@ -129,18 +122,18 @@ export function LandingPortal() {
           </div>
         </div>
 
-        {/* Business Impact Footer Summary */}
+        {/* Platform Capabilities Summary */}
         <div className="bg-surface-subtle rounded-xl border border-border p-4 flex flex-col md:flex-row items-center justify-between text-xs text-ink-secondary gap-3">
           <div className="flex items-center gap-2 text-ink-primary font-medium">
-            <TrendingUp className="w-4 h-4 text-brand" />
-            <span>Modeled Gym Economics:</span>
+            <Sparkles className="w-4 h-4 text-brand" />
+            <span>Autonomous Nutrition Operations</span>
           </div>
           <div className="flex items-center gap-4 text-[11px] text-ink-muted">
-            <span>50 members · 25,000 EGP/mo</span>
+            <span>Real-time meal adjustments</span>
             <span>·</span>
-            <span className="text-brand font-medium">+10,000 EGP/mo revenue uplift</span>
+            <span className="text-brand font-medium">Automatic macro rebalancing</span>
             <span>·</span>
-            <span>75 Coach hours returned</span>
+            <span>Direct coach support</span>
           </div>
         </div>
       </div>
