@@ -56,64 +56,33 @@ graph TD
     MW --> PG
 ```
 
-### 2. Autonomous Nutrition Rebalancing Flow
+### 2. Member Onboarding, Plan Generation & Coach Synchronization Flow
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Member as Gym Member (e.g., Layla)
-    participant App as Member App
-    participant AI as NutriCoach AI Agent
-    participant Engine as Deterministic Macro Engine
-    actor Coach as Coach Captain Ahmed
-    participant DB as Supabase Database
+    actor Athlete as Gym Member / User
+    participant Portal as Landing Portal / Registration
+    participant Engine as NutriCoach AI Planner & Macro Engine
+    participant Store as Unified State & Database
+    actor Coach as Coach Workspace (Captain Ahmed)
 
-    Member->>App: Logs off-plan meal (e.g., Large Koshary at lunch: 900 kcal, 160g C)
-    App->>Engine: Calculate consumed vs. target daily macros
-    Engine-->>AI: Deviation Detected (+60g Carbs above planned budget)
+    Athlete->>Portal: Clicks "+ Create New Member"
+    Athlete->>Portal: Inputs InBody biometrics (Weight, Height, Sex), Preferences & Fitness Goal
     
-    AI->>Engine: Query high-protein / low-carb Egyptian dinner alternatives
-    Engine-->>AI: Propose Lean Turkey Wrap (540 kcal, 54g P, 18g C)
+    Portal->>Engine: Send biometric profile & dietary parameters
+    Engine->>Engine: Calculate BMR, TDEE, & Calorie/Protein target allocations
+    Engine->>Engine: Generate 7-day adaptive Egyptian meal plan, initial stream & compliance baseline
     
-    AI->>App: Render Instant Adaptive Adjustment Box
-    App-->>Member: "Rebalance Dinner: Keep this change or Choose alternative"
+    Engine->>Store: Save member profile, nutrition targets, planned meals & logs
     
-    alt Member confirms adjustment
-        Member->>App: Clicks "Keep this change"
-        App->>DB: Update today's dinner slot & recalculate remaining budget
-        App->>DB: Log executed agent action to Audit Trail
-    else Requires Coach Approval (e.g. chronic deficit)
-        AI->>DB: Flag priority exception in Coach Triage Queue
-        Coach->>App: Reviews exception in Coach Hub & Approves adjustment
-        App->>DB: Commit verified plan adaptation
+    par Member App Activation
+        Store-->>Athlete: Launch Personalized Member App
+        Note over Athlete: Access active Today's Stream, Weekly Planner, Compliance Gauges & Ask NutriCoach AI
+    and Real-Time Coach Hub Sync
+        Store-->>Coach: Update Coach Roster in Real-Time
+        Note over Coach: New athlete instantly appears in Member Directory, Adherence Overview & Coach Chat
     end
-```
-
-### 3. Chat Architecture: AI Copilot vs. Human Coach Channel
-
-```mermaid
-graph LR
-    subgraph Member_Interface["Member App View"]
-        direction TB
-        subgraph Center_Workspace["Center Workspace (640px)"]
-            CDV["Ask Coach / Direct Coach Support<br/>──────────────────────<br/>• Direct thread with Coach Captain Ahmed<br/>• Verified Coach badge & signature<br/>• Lifestyle & training inquiries<br/>• Attach meal log capability"]
-        end
-        subgraph Right_Panel["Persistent Right Panel (340px)"]
-            APC["Ask NutriCoach (AI Assistant)<br/>──────────────────────<br/>• Online Green Indicator<br/>• Real-time meal replacements<br/>• Dynamic food logging<br/>• Egyptian recipe suggestions"]
-        end
-    end
-
-    subgraph Coach_Workspace["Coach Dashboard"]
-        MQ["Member Questions Inbox<br/>(Live bidirectional chat sync)"]
-    end
-
-    subgraph State_Sync["State & Storage"]
-        STORE["NutriCoach Unified Store"]
-    end
-
-    CDV <-->|Sync messages & replies| MQ
-    CDV --> STORE
-    APC --> STORE
 ```
 
 ---
