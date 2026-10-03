@@ -2,7 +2,7 @@
 
 > **Live Application**: [NutriCoach — Adaptive AI Nutrition for Gyms](https://nutricoach-app-gray.vercel.app/)
 
-NutriCoach is an adaptive AI nutrition platform designed for gym athletes and coaches. Instead of static meal plans, NutriCoach continuously adapts daily nutrition targets based on what members actually eat, while keeping coaches in control of exceptions.
+NutriCoach is an adaptive AI nutrition platform built for gym athletes and coaches. Instead of static, inflexible meal plans, NutriCoach continuously adapts daily nutrition targets based on what members actually eat, while keeping coaches in control of exceptions.
 
 ---
 
@@ -30,16 +30,16 @@ graph TD
         end
     end
 
-    subgraph Engine_Tier["Autonomous Engine & Logic"]
-        CTX[NutriCoach Unified Reactive State]
-        ME[Deterministic Macro & Egyptian Food Engine]
+    subgraph Logic_Tier["Autonomous Nutrition & Agent Engine"]
+        CTX[NutriCoach React Context & Reactive State]
+        ME[Deterministic Macro & Food Engine<br/>Egyptian Nutrition DB]
         ORCH[Agent Orchestrator & Tool Executor]
     end
 
-    subgraph Data_Tier["Storage & Security"]
+    subgraph Data_Tier["Data & Security Layer"]
         MW[Edge Middleware Session Guard]
-        SSR[Supabase SSR Client]
-        PG[(PostgreSQL Database with RLS)]
+        SSR[Supabase SSR Client<br/>createBrowserClient / createServerClient]
+        PG[(Supabase PostgreSQL Database<br/>RLS Security Enabled)]
     end
 
     LP --> Member_App
@@ -50,14 +50,13 @@ graph TD
     
     CTX --> ME
     CTX --> ORCH
+    
     CTX --> SSR
     SSR --> MW
     MW --> PG
 ```
 
----
-
-### 2. Autonomous Adaptation & Rebalancing Flow
+### 2. Autonomous Nutrition Rebalancing Flow
 
 ```mermaid
 sequenceDiagram
@@ -69,11 +68,13 @@ sequenceDiagram
     actor Coach as Coach Captain Ahmed
     participant DB as Supabase Database
 
-    Member->>App: Logs off-plan meal (e.g. Koshary at lunch: 900 kcal, 160g C)
+    Member->>App: Logs off-plan meal (e.g., Large Koshary at lunch: 900 kcal, 160g C)
     App->>Engine: Calculate consumed vs. target daily macros
     Engine-->>AI: Deviation Detected (+60g Carbs above planned budget)
+    
     AI->>Engine: Query high-protein / low-carb Egyptian dinner alternatives
     Engine-->>AI: Propose Lean Turkey Wrap (540 kcal, 54g P, 18g C)
+    
     AI->>App: Render Instant Adaptive Adjustment Box
     App-->>Member: "Rebalance Dinner: Keep this change or Choose alternative"
     
@@ -81,26 +82,24 @@ sequenceDiagram
         Member->>App: Clicks "Keep this change"
         App->>DB: Update today's dinner slot & recalculate remaining budget
         App->>DB: Log executed agent action to Audit Trail
-    else Chronic Deficit / Flagged Exception
+    else Requires Coach Approval (e.g. chronic deficit)
         AI->>DB: Flag priority exception in Coach Triage Queue
         Coach->>App: Reviews exception in Coach Hub & Approves adjustment
         App->>DB: Commit verified plan adaptation
     end
 ```
 
----
-
-### 3. Chat Architecture: Persistent AI Copilot vs. Human Coach Channel
+### 3. Chat Architecture: AI Copilot vs. Human Coach Channel
 
 ```mermaid
 graph LR
     subgraph Member_Interface["Member App View"]
         direction TB
         subgraph Center_Workspace["Center Workspace (640px)"]
-            CDV["Ask Coach / Direct Coach Support<br/>──────────────────────<br/>• Direct thread with Coach Captain Ahmed<br/>• Verified Coach badge & signature<br/>• Training & lifestyle inquiries<br/>• Attach meal log support"]
+            CDV["Ask Coach / Direct Coach Support<br/>──────────────────────<br/>• Direct thread with Coach Captain Ahmed<br/>• Verified Coach badge & signature<br/>• Lifestyle & training inquiries<br/>• Attach meal log capability"]
         end
         subgraph Right_Panel["Persistent Right Panel (340px)"]
-            APC["Ask NutriCoach (AI Assistant)<br/>──────────────────────<br/>• Online status indicator<br/>• Instant meal replacements<br/>• Dynamic food logging<br/>• Egyptian recipe suggestions"]
+            APC["Ask NutriCoach (AI Assistant)<br/>──────────────────────<br/>• Online Green Indicator<br/>• Real-time meal replacements<br/>• Dynamic food logging<br/>• Egyptian recipe suggestions"]
         end
     end
 
@@ -108,54 +107,49 @@ graph LR
         MQ["Member Questions Inbox<br/>(Live bidirectional chat sync)"]
     end
 
+    subgraph State_Sync["State & Storage"]
+        STORE["NutriCoach Unified Store"]
+    end
+
     CDV <-->|Sync messages & replies| MQ
+    CDV --> STORE
+    APC --> STORE
 ```
 
 ---
 
-## 🌟 Key Features
+## 📱 Two Distinct Interfaces
 
-- **3-Zone Member Experience**: Sidebar navigation, flexible center workspace (Macro summary, Curated guides, Adaptive before/after box, Meals stream, and Direct Coach Messaging), and persistent **Ask NutriCoach** AI assistant.
-- **Coach Hub Workflows**: Overview dashboard with 7-day adherence charts, priority triage queue, member messaging inbox, and autonomous agent audit log.
-- **Deterministic Egyptian Macro Engine**: Mathematical calorie verification ($P \times 4 + C \times 4 + F \times 9$) and authentic Egyptian food database (Ful medames, Koshary, Grilled sea bass, Molokhia, Kofta, Shish taouk, and Greek yogurt bowls).
+### 1. Member App (3-Zone Clean Workspace)
+- **Navigation Sidebar (220px)**: Quick switching between Daily Tracking, Meal Planner, Adherence Trends, Coach Direct Line, and Profile.
+- **Center Workspace (640px)**:
+  - **Macro Summary & Gauges**: Real-time calorie and macronutrient balance.
+  - **Adaptive Before/After Box**: Immediate visual diff when meals deviate.
+  - **Meals Stream**: Interactive logging with portion adjustments.
+  - **Direct Coach Support**: 1-on-1 private messaging channel with assigned human coach (Coach Captain Ahmed).
+- **Persistent AI Panel (340px)**: **Ask NutriCoach** copilot for quick Egyptian recipe recommendations, calorie calculations, and meal swaps.
 
----
-
-## 👥 Demo Personas
-
-1. **Omar Hassan** — *Consistent Progress*: 100% adherence streak, hypertrophy targets (2,450 kcal / 160g protein).
-2. **Sara El-Masry** — *Single Miss*: Missed dinner due to late flight; demonstrates anti-overcompensation logic.
-3. **Layla Mostafa** — *Repeated Deviation*: Logged off-plan lunch; triggers instant dinner rebalancing.
-4. **Ahmed Nabil** — *Protein Gap*: Hits calorie goal but falls short on protein; triggers high-protein snack upgrades.
-5. **Mariam Farouk** — *Dietary Shift*: Pescatarian transition; filters out poultry/meat while meeting protein targets.
-6. **Youssef Adel** — *Inactivity Alert*: 4 days without logging; triggers proactive coach check-in.
-
----
-
-## 💻 Tech Stack
-
-- **Framework**: Next.js 15 (App Router, Server & Client Components)
-- **Database & Auth**: Supabase PostgreSQL with Row Level Security (RLS) & SSR
-- **Language & Styling**: TypeScript 5, Tailwind CSS, Lucide Icons
-- **AI Agent**: Google Gemini API with local deterministic fallback
+### 2. Coach Workspace (4 Primary Workflows)
+- **Overview Dashboard**: Team compliance trends, 7-day adherence charts, and aggregate consistency metrics.
+- **Needs Attention / Triage**: Priority worklist flagging deviations, protein gaps, and member inactivity for coach intervention.
+- **Member Questions Inbox**: Direct communication desk to read and answer incoming athlete inquiries.
+- **Agent Activity Log**: Verifiable audit trail showing automated plan adjustments and coach time saved.
 
 ---
 
-## 🚀 Local Setup
+## ⚡ Core Features
 
-```bash
-# 1. Install dependencies
-npm install
+- **Autonomous Meal Rebalancing**: Automatically recalculates dinner and snacks when lunch deviates from target macros.
+- **Deterministic Macro Verification**: Calorie calculations are mathematically verified ($P \times 4 + C \times 4 + F \times 9$).
+- **Egyptian Food Intelligence**: Built-in authentic Egyptian database (Ful medames, Koshary, Grilled sea bass, Molokhia, Kofta, Shish taouk, Greek yogurt bowls).
+- **Separated Chat Architecture**: Dedicated 1-on-1 Human Coach Inbox cleanly separated from the persistent real-time AI Assistant.
+- **Interactive Personas**: 6 pre-configured member scenarios demonstrating stable streaks, missed logs, carbohydrate deviations, protein gaps, dietary shifts, and inactivity alerts.
 
-# 2. Configure environment in .env.local
-NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+---
 
-# 3. Seed initial demo personas and plans
-npm run seed
+## 🛠️ Tech Stack
 
-# 4. Start local development server
-npm run dev
-```
+- **Frontend**: Next.js 15 (App Router, Server & Client Components)
+- **Backend & Database**: Supabase PostgreSQL with Row Level Security (RLS) & SSR
+- **Language & Styling**: TypeScript, Tailwind CSS, Lucide Icons
+- **AI Engine**: Google Gemini API with deterministic rule-based fallback
