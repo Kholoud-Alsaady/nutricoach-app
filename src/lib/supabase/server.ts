@@ -1,29 +1,26 @@
-// Supabase client for Server Components, Route Handlers and Server Actions.
-// Uses the signed-in user's session cookie, so Row-Level Security applies.
-
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
-export function supabaseConfigured() {
-  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  return Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && key);
-}
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseKey = (process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)!;
 
-export async function createClient() {
-  const cookieStore = await cookies();
-  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-  return createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL || "", key, {
+export const createClient = (cookieStore?: Awaited<ReturnType<typeof cookies>>) => {
+  return createServerClient(supabaseUrl, supabaseKey, {
     cookies: {
-      getAll() {
-        return cookieStore.getAll();
+      async getAll() {
+        const store = cookieStore || (await cookies());
+        return store.getAll();
       },
-      setAll(cookiesToSet: { name: string; value: string; options?: CookieOptions }[]) {
+      async setAll(cookiesToSet: { name: string; value: string; options?: CookieOptions }[]) {
         try {
-          cookiesToSet.forEach(({ name, value, options }) => (cookieStore as any).set(name, value, options));
+          const store = cookieStore || (await cookies());
+          cookiesToSet.forEach(({ name, value, options }) =>
+            (store as any).set(name, value, options)
+          );
         } catch {
-          // Server Component: cookies are read-only
+          // Handled if called from Server Component
         }
       },
     },
   });
-}
+};
