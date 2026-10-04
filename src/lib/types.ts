@@ -273,6 +273,17 @@ export interface AgentCoachFollowup {
   recommendedAction: string;
 }
 
+export interface AgentPendingProposal {
+  id: string;
+  action: AgentActionType;
+  intent?: AgentIntent;
+  targetDate?: string;
+  targetSlot?: MealType | string;
+  meals?: AgentProposedMeal[];
+  preferenceUpdate?: AgentPreferenceUpdate | null;
+  summary?: string;
+}
+
 export interface AgentResponseContract {
   replyText: string;
   intent: AgentIntent;
@@ -280,15 +291,18 @@ export interface AgentResponseContract {
   shouldMutatePlan: boolean;
   requiresConfirmation: boolean;
   targetDay?: "today" | "tomorrow" | string;
+  targetDate?: string;
   targetSlot?: "breakfast" | "lunch" | "snack" | "dinner" | string;
   suggestedFollowUps?: string[];
   proposedMeal?: AgentProposedMeal | null;
+  proposedMeals?: AgentProposedMeal[] | null;
   remainingTargets?: AgentRemainingTargets | null;
   remainingTargetsNote?: string | null;
   preferenceUpdate?: AgentPreferenceUpdate | null;
   needsCoachReview?: boolean;
   coachFollowup?: AgentCoachFollowup | null;
   updatedMeals?: AgentProposedMeal[] | null;
+  confirmedProposalId?: string;
   error?: string;
 }
 
