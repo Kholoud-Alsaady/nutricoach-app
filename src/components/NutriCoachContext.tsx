@@ -684,6 +684,32 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
         created_at: new Date().toISOString(),
       };
 
+      // Asynchronous background call to mutate-meal API for live Supabase persistence
+      if (typeof window !== "undefined") {
+        fetch("/api/mutate-meal", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            memberId,
+            targetDate: date,
+            targetSlot: mealType,
+            meal,
+            actionType: "replace_meal",
+            userRequest: `Adjust ${actionTitle}'s ${mealType} to ${meal.meal_name}`,
+            summary: `Updated ${actionTitle}'s ${mealType} to ${meal.meal_name} (${meal.calories} kcal)${dinnerRebalancedNote}`,
+            rebalanceDinner,
+            gymId: prev.gym.id,
+          }),
+        })
+          .then((res) => res.json())
+          .then((data) => {
+            console.log("SUPABASE UPDATE RESULT:", data);
+          })
+          .catch((err) => {
+            console.warn("Supabase background mutation notice:", err?.message);
+          });
+      }
+
       return {
         ...prev,
         plannedMeals: {

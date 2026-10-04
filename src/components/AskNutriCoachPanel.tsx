@@ -932,6 +932,7 @@ export function AskNutriCoachPanel() {
 
       if (res.ok) {
         const data: AgentResponseContract = await res.json();
+        console.log("AGENT RESULT:", data);
 
         let mealPlanCard: MealPlanActionCardData | undefined;
         let alternativesCard: AlternativesCardData | undefined;
@@ -964,10 +965,18 @@ export function AskNutriCoachPanel() {
         }
 
         // If mutation is approved and verified by application
-        if (data.shouldMutatePlan && data.proposedMeal && data.targetSlot) {
+        if (data.shouldMutatePlan && data.proposedMeal && data.proposedMeal.title && data.targetSlot) {
           const targetDay = data.targetDay || "today";
           const dayOffset = targetDay === "tomorrow" ? 1 : 0;
           const targetDate = addDays(state.today, dayOffset);
+
+          console.log("MUTATION REQUEST:", {
+            memberId: state.activeMemberId,
+            targetDay,
+            targetDate,
+            targetSlot: data.targetSlot,
+            proposedMeal: data.proposedMeal,
+          });
 
           if (data.action === "log_meal") {
             logMeal({

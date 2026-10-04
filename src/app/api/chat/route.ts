@@ -385,6 +385,8 @@ function runDeterministicCoach({
   targets,
   todayPlannedMeals,
   todayMealLogs,
+  recentHistory,
+  conversationState,
 }: {
   message: string;
   userProfile: any;
@@ -404,7 +406,7 @@ function runDeterministicCoach({
   const remainingCals = Math.max(0, calGoal - loggedCals);
   const remainingProtein = Math.max(0, proteinGoal - loggedProtein);
 
-  // 1. Explicit Confirmation (e.g. "yes", "add it", "do it", "sounds good")
+  // 1. Explicit Confirmation (e.g. "yes", "add it", "do it", "sounds good", "apply change")
   if (
     p === "yes" ||
     p === "yes please" ||
@@ -414,18 +416,48 @@ function runDeterministicCoach({
     p === "go ahead" ||
     p === "confirm" ||
     p === "apply it" ||
+    p === "apply change" ||
+    p === "add to dinner" ||
     p === "use that" ||
     p.startsWith("yes,") ||
     p.startsWith("yes ")
   ) {
+    // Extract last proposed meal from recent conversation history if available
+    let confirmedMeal = {
+      title: "Grilled chicken wrap with vegetables",
+      ingredients: ["whole wheat wrap", "grilled chicken breast", "mixed vegetables", "greek yogurt sauce"],
+      calories: 520,
+      protein: 46,
+      carbs: 42,
+      fat: 14,
+      slot: "dinner",
+    };
+
+    if (recentHistory && recentHistory.length > 0) {
+      const lastAi = [...recentHistory].reverse().find((m: any) => m.sender === "agent" && (m.mealPlanCard || m.proposedMeal));
+      if (lastAi?.mealPlanCard) {
+        confirmedMeal = {
+          title: lastAi.mealPlanCard.foodName,
+          ingredients: [lastAi.mealPlanCard.foodName.toLowerCase()],
+          calories: lastAi.mealPlanCard.calories,
+          protein: lastAi.mealPlanCard.protein,
+          carbs: lastAi.mealPlanCard.carbs,
+          fat: lastAi.mealPlanCard.fat,
+          slot: lastAi.mealPlanCard.targetSlot || "dinner",
+        };
+      }
+    }
+
     return {
-      replyText: "Done. I have applied the update to your meal plan and adjusted your targets accordingly.",
+      replyText: `Done. I have applied ${confirmedMeal.title} to tonight's dinner and adjusted your daily targets.`,
       intent: "meal_replacement",
       action: "replace_meal",
       shouldMutatePlan: true,
       requiresConfirmation: false,
       targetDay: "today",
-      targetSlot: "dinner",
+      targetSlot: confirmedMeal.slot || "dinner",
+      proposedMeal: confirmedMeal,
+      remainingTargetsNote: "Your meal plan has been updated and synchronized.",
       suggestedFollowUps: ["View updated plan", "Check remaining macros"],
     };
   }
@@ -452,44 +484,45 @@ function runDeterministicCoach({
     };
   }
 
-  // 3. Food Logging (e.g. "I ate koshary for lunch")
+  // 3. Food Logging / Lunch Deviation (e.g. "I ate koshary for lunch")
   if (
-    p.startsWith("i ate ") ||
-    p.startsWith("i had ") ||
-    p.startsWith("ate ") ||
-    p.startsWith("logged ") ||
-    p.includes("koshary for lunch") ||
-    p.includes("ate koshary")
+    p.includes("koshary") ||
+    p.includes("ate koshary") ||
+    (p.startsWith("i ate") && p.includes("lunch")) ||
+    (p.startsWith("i had") && p.includes("lunch")) ||
+    p.startsWith("logged ")
   ) {
     const isKoshary = p.includes("koshary");
-    const foodName = isKoshary ? "Authentic Egyptian Koshary" : "Logged Meal";
-    const foodCals = isKoshary ? 650 : 520;
-    const foodProtein = isKoshary ? 18 : 35;
+    const proposedDinnerTitle = "Grilled chicken wrap with vegetables";
+    const dinnerCals = 520;
+    const dinnerProtein = 46;
+    const dinnerCarbs = 42;
+    const dinnerFat = 14;
 
     return {
-      replyText: `Got it. I have noted that for your lunch. Since it was higher in carbohydrates (${foodCals} kcal, ${foodProtein}g protein) than originally planned, I recommend making dinner more protein-focused to keep today's target balanced.`,
-      intent: "meal_logging",
-      action: "log_meal",
-      shouldMutatePlan: true,
-      requiresConfirmation: false,
+      replyText: "Your lunch was higher in carbohydrates than planned, so I would make dinner more protein-focused. I suggest a grilled chicken wrap with vegetables.",
+      intent: "meal_adaptation",
+      action: "replace_meal",
+      shouldMutatePlan: false,
+      requiresConfirmation: true,
       targetDay: "today",
-      targetSlot: "lunch",
+      targetSlot: "dinner",
       proposedMeal: {
-        title: foodName,
-        ingredients: isKoshary ? ["lentils", "rice", "pasta", "chickpeas", "crispy onions"] : ["mixed ingredients"],
-        calories: foodCals,
-        protein: foodProtein,
-        carbs: isKoshary ? 115 : 50,
-        fat: isKoshary ? 12 : 15,
+        title: proposedDinnerTitle,
+        ingredients: ["whole wheat wrap", "grilled chicken breast", "mixed vegetables", "greek yogurt sauce"],
+        calories: dinnerCals,
+        protein: dinnerProtein,
+        carbs: dinnerCarbs,
+        fat: dinnerFat,
       },
       remainingTargets: {
-        calories: Math.max(0, remainingCals - foodCals),
-        protein: Math.max(0, remainingProtein - foodProtein),
-        carbs: Math.max(0, (targets?.carbs || 240) - 115),
-        fat: Math.max(0, (targets?.fat || 65) - 12),
+        calories: 520,
+        protein: 46,
+        carbs: 42,
+        fat: 14,
       },
-      remainingTargetsNote: `Leaves approximately ${Math.max(0, remainingCals - foodCals)} kcal and ${Math.max(0, remainingProtein - foodProtein)}g protein for dinner.`,
-      suggestedFollowUps: ["Adapt tonight's dinner", "View today's stream"],
+      remainingTargetsNote: "Dinner calibrated to 520 kcal (46g protein) to balance today's carbohydrate-rich lunch.",
+      suggestedFollowUps: ["Apply change", "Choose another meal"],
     };
   }
 
@@ -524,7 +557,7 @@ function runDeterministicCoach({
     };
   }
 
-  // 6. Clear Meal Request with Confirmation Needed (e.g. "Tonight for dinner", "Replace dinner with chicken pasta")
+  // 6. Clear Meal Request with Confirmation Needed (e.g. "Tonight for dinner", "Replace dinner with chicken pasta", "I want pasta tonight")
   if (
     p.includes("tonight") ||
     p.includes("dinner") ||
@@ -533,12 +566,14 @@ function runDeterministicCoach({
     p.includes("burger tonight")
   ) {
     const isBurger = p.includes("burger");
-    const mealTitle = isBurger ? "Lean beef burger with sweet potato wedges" : "Grilled chicken tomato pasta";
-    const mealCals = isBurger ? 580 : 620;
-    const mealProtein = isBurger ? 44 : 45;
+    const mealTitle = isBurger ? "Lean beef burger with sweet potato wedges" : "Chicken tomato pasta";
+    const mealCals = isBurger ? 580 : 600;
+    const mealProtein = isBurger ? 44 : 40;
+    const mealCarbs = isBurger ? 52 : 65;
+    const mealFat = isBurger ? 16 : 18;
 
     return {
-      replyText: `For tonight's dinner, a ${mealTitle.toLowerCase()} around ${mealCals} kcal gives you approximately ${mealProtein}g protein and keeps your remaining targets on track. Would you like me to add it to tonight's dinner?`,
+      replyText: `For tonight's dinner, ${mealTitle.toLowerCase()} around ${mealCals} kcal gives you approximately ${mealProtein}g protein and keeps your remaining targets on track. Would you like me to add it to tonight's dinner?`,
       intent: "meal_replacement",
       action: "replace_meal",
       shouldMutatePlan: false,
@@ -547,11 +582,11 @@ function runDeterministicCoach({
       targetSlot: "dinner",
       proposedMeal: {
         title: mealTitle,
-        ingredients: isBurger ? ["lean beef patty", "whole grain bun", "sweet potato", "lettuce"] : ["whole wheat pasta", "grilled chicken breast", "tomato sauce", "spinach"],
+        ingredients: isBurger ? ["lean beef patty", "whole grain bun", "sweet potato", "lettuce"] : ["whole wheat pasta", "grilled chicken breast", "tomato sauce", "vegetables"],
         calories: mealCals,
         protein: mealProtein,
-        carbs: isBurger ? 52 : 68,
-        fat: isBurger ? 16 : 18,
+        carbs: mealCarbs,
+        fat: mealFat,
       },
       remainingTargets: {
         calories: Math.max(0, remainingCals - mealCals),
@@ -560,7 +595,7 @@ function runDeterministicCoach({
         fat: 15,
       },
       remainingTargetsNote: `This leaves approximately ${Math.max(0, remainingCals - mealCals)} kcal and ${Math.max(0, remainingProtein - mealProtein)}g protein for the day.`,
-      suggestedFollowUps: ["Add to dinner", "Choose another meal"],
+      suggestedFollowUps: ["Apply change", "Choose another meal"],
     };
   }
 
