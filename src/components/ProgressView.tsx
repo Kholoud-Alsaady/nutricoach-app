@@ -9,17 +9,70 @@ import { analyzeProgress } from "@/lib/analysis";
 export function ProgressView() {
   const { state, activeProfile, activeTargets, activePlannedMeals, activeMealLogs } = useNutriCoach();
 
+  const scenario = activeProfile.demo_scenario;
+  const name = activeProfile.name?.toLowerCase() || "";
+  const isDemoMember = [
+    "00000000-0000-0000-0000-000000000011",
+    "00000000-0000-0000-0000-000000000012",
+    "00000000-0000-0000-0000-000000000013",
+    "00000000-0000-0000-0000-000000000014",
+    "00000000-0000-0000-0000-000000000015",
+    "00000000-0000-0000-0000-000000000016",
+  ].includes(activeProfile.id);
+
+  const isOnboarding =
+    scenario === "onboarding" ||
+    (!isDemoMember &&
+      !name.includes("omar") &&
+      !name.includes("sara") &&
+      !name.includes("layla") &&
+      !name.includes("ahmed") &&
+      !name.includes("mariam") &&
+      !name.includes("youssef"));
+
+  const memberCreatedDate = activeProfile.created_at
+    ? activeProfile.created_at.slice(0, 10)
+    : state.today;
+
   const analysis = analyzeProgress({
     targets: activeTargets,
     logs: activeMealLogs,
     planned: activePlannedMeals,
-    startDate: addDays(state.today, -13),
+    startDate: isOnboarding ? memberCreatedDate : addDays(state.today, -13),
     today: state.today,
   });
 
   // Persona-specific exact display metrics
   const getScenarioConfig = () => {
-    const scenario = activeProfile.demo_scenario;
+    if (isOnboarding) {
+      const todayLogs = activeMealLogs.filter((l) => l.date === state.today);
+      const todayProteinLogged = todayLogs.reduce((s, l) => s + l.protein, 0);
+      const liveProteinPct =
+        todayProteinLogged > 0
+          ? Math.min(100, Math.round((todayProteinLogged / activeTargets.protein) * 100))
+          : 0;
+
+      return {
+        badge: "NEW MEMBER — ONBOARDING",
+        badgeStyle: "bg-brand-tint text-brand border border-[#D5E6D2]",
+        headline: `${activeProfile.name}: Day 1 on Plan`,
+        recommendation:
+          "Welcome to NutriCoach. Log today's meals to begin establishing your consistency baseline.",
+        adherence: 100,
+        consistency: 100,
+        streak: 1,
+        streakDisplay: "Day 1",
+        streakSubtext: "First day on plan",
+        adherenceSubtext: "Day 1 baseline active",
+        consistencySubtext: "Target active",
+        proteinPct: liveProteinPct,
+        proteinSubtext:
+          todayProteinLogged > 0
+            ? `${todayProteinLogged}g logged / ${activeTargets.protein}g target`
+            : `vs ${activeTargets.protein}g target`,
+        isOnboarding: true,
+      };
+    }
 
     if (scenario === "stable" || activeProfile.name.toLowerCase().includes("omar")) {
       return {
@@ -30,7 +83,13 @@ export function ProgressView() {
         adherence: 96,
         consistency: 94,
         streak: 10,
+        streakDisplay: "10 days",
+        streakSubtext: "Consecutive adherent days",
+        adherenceSubtext: "Target tolerance ±10%",
+        consistencySubtext: "Planned meals logged as planned",
         proteinPct: 98,
+        proteinSubtext: `vs ${activeTargets.protein}g target`,
+        isOnboarding: false,
       };
     }
     if (scenario === "single_miss" || activeProfile.name.toLowerCase().includes("sara")) {
@@ -42,7 +101,13 @@ export function ProgressView() {
         adherence: 86,
         consistency: 88,
         streak: 1,
+        streakDisplay: "1 day",
+        streakSubtext: "Consecutive adherent days",
+        adherenceSubtext: "Target tolerance ±10%",
+        consistencySubtext: "Planned meals logged as planned",
         proteinPct: 92,
+        proteinSubtext: `vs ${activeTargets.protein}g target`,
+        isOnboarding: false,
       };
     }
     if (scenario === "repeated_deviation" || activeProfile.name.toLowerCase().includes("layla")) {
@@ -54,7 +119,13 @@ export function ProgressView() {
         adherence: 68,
         consistency: 62,
         streak: 0,
+        streakDisplay: "0 days",
+        streakSubtext: "Consecutive adherent days",
+        adherenceSubtext: "Target tolerance ±10%",
+        consistencySubtext: "Planned meals logged as planned",
         proteinPct: 78,
+        proteinSubtext: `vs ${activeTargets.protein}g target`,
+        isOnboarding: false,
       };
     }
     if (scenario === "protein_gap" || activeProfile.name.toLowerCase().includes("ahmed")) {
@@ -66,7 +137,13 @@ export function ProgressView() {
         adherence: 74,
         consistency: 70,
         streak: 3,
+        streakDisplay: "3 days",
+        streakSubtext: "Consecutive adherent days",
+        adherenceSubtext: "Target tolerance ±10%",
+        consistencySubtext: "Planned meals logged as planned",
         proteinPct: 58,
+        proteinSubtext: `vs ${activeTargets.protein}g target`,
+        isOnboarding: false,
       };
     }
     if (scenario === "preference_shift" || activeProfile.name.toLowerCase().includes("mariam")) {
@@ -78,7 +155,13 @@ export function ProgressView() {
         adherence: 88,
         consistency: 85,
         streak: 5,
+        streakDisplay: "5 days",
+        streakSubtext: "Consecutive adherent days",
+        adherenceSubtext: "Target tolerance ±10%",
+        consistencySubtext: "Planned meals logged as planned",
         proteinPct: 94,
+        proteinSubtext: `vs ${activeTargets.protein}g target`,
+        isOnboarding: false,
       };
     }
     if (scenario === "inactive" || activeProfile.name.toLowerCase().includes("youssef")) {
@@ -90,7 +173,13 @@ export function ProgressView() {
         adherence: 0,
         consistency: 0,
         streak: 0,
+        streakDisplay: "0 days",
+        streakSubtext: "Consecutive adherent days",
+        adherenceSubtext: "Target tolerance ±10%",
+        consistencySubtext: "Planned meals logged as planned",
         proteinPct: 0,
+        proteinSubtext: `vs ${activeTargets.protein}g target`,
+        isOnboarding: false,
       };
     }
 
@@ -102,7 +191,13 @@ export function ProgressView() {
       adherence: analysis.adherencePct,
       consistency: analysis.mealConsistencyPct,
       streak: analysis.streak,
+      streakDisplay: `${analysis.streak} days`,
+      streakSubtext: "Consecutive adherent days",
+      adherenceSubtext: "Target tolerance ±10%",
+      consistencySubtext: "Planned meals logged as planned",
       proteinPct: analysis.avgProteinPct,
+      proteinSubtext: `vs ${activeTargets.protein}g target`,
+      isOnboarding: false,
     };
   };
 
@@ -117,30 +212,30 @@ export function ProgressView() {
           <div className={`text-xl font-semibold ${cfg.adherence >= 80 ? "text-brand" : cfg.adherence > 50 ? "text-status-warning" : "text-status-danger"}`}>
             {cfg.adherence}%
           </div>
-          <div className="text-[10px] text-ink-secondary">Target tolerance ±10%</div>
+          <div className="text-[10px] text-ink-secondary">{cfg.adherenceSubtext}</div>
         </div>
 
         <div className="bg-surface rounded-lg border border-border p-3.5 shadow-hairline space-y-1">
           <div className="text-[11px] text-ink-muted">Meal Consistency</div>
           <div className="text-xl font-semibold text-ink-primary">{cfg.consistency}%</div>
-          <div className="text-[10px] text-ink-secondary">Planned meals logged as planned</div>
+          <div className="text-[10px] text-ink-secondary">{cfg.consistencySubtext}</div>
         </div>
 
         <div className="bg-surface rounded-lg border border-border p-3.5 shadow-hairline space-y-1">
           <div className="text-[11px] text-ink-muted">Current Streak</div>
           <div className="text-xl font-semibold text-ink-primary flex items-center gap-1">
             <Flame className={`w-5 h-5 ${cfg.streak > 0 ? "text-status-warning" : "text-ink-muted"}`} />
-            <span>{cfg.streak} days</span>
+            <span>{cfg.streakDisplay}</span>
           </div>
-          <div className="text-[10px] text-ink-secondary">Consecutive adherent days</div>
+          <div className="text-[10px] text-ink-secondary">{cfg.streakSubtext}</div>
         </div>
 
         <div className="bg-surface rounded-lg border border-border p-3.5 shadow-hairline space-y-1">
           <div className="text-[11px] text-ink-muted">Avg Daily Protein</div>
-          <div className={`text-xl font-semibold ${cfg.proteinPct >= 80 ? "text-brand" : "text-status-warning"}`}>
+          <div className={`text-xl font-semibold ${cfg.proteinPct >= 80 || cfg.isOnboarding ? "text-brand" : "text-status-warning"}`}>
             {cfg.proteinPct}%
           </div>
-          <div className="text-[10px] text-ink-secondary">vs {activeTargets.protein}g target</div>
+          <div className="text-[10px] text-ink-secondary">{cfg.proteinSubtext}</div>
         </div>
       </div>
 
@@ -168,46 +263,59 @@ export function ProgressView() {
         <div className="divide-y divide-border">
           {analysis.days.map((d) => {
             const isToday = d.date === state.today;
+            const isBeforeEnrollment = isOnboarding && d.date < memberCreatedDate;
+
             return (
               <div key={d.date} className="px-4 py-2.5 flex items-center justify-between text-xs">
                 <div className="flex items-center gap-3">
-                  <div className="w-20 font-medium text-ink-primary">
-                    {relativeDay(d.date, state.today)}
+                  <div className="w-24 font-medium text-ink-primary">
+                    {isToday && isOnboarding ? "Today (Created)" : relativeDay(d.date, state.today)}
                   </div>
                   <div className="text-ink-muted text-[11px]">{formatDay(d.date)}</div>
                 </div>
 
                 <div className="flex items-center gap-6">
                   <div className="text-right">
-                    <div className="font-medium text-ink-primary">
-                      {d.logged.calories > 0 ? `${d.logged.calories} / ${activeTargets.calories} kcal` : "No food logged"}
-                    </div>
-                    {d.logged.calories > 0 && (
-                      <div className="text-[10px] text-ink-muted">
-                        {d.logged.protein}g P · {d.logged.carbs}g C · {d.logged.fat}g F
-                      </div>
+                    {isBeforeEnrollment ? (
+                      <div className="text-ink-muted text-[11px] italic">Account not enrolled</div>
+                    ) : (
+                      <>
+                        <div className="font-medium text-ink-primary">
+                          {d.logged.calories > 0
+                            ? `${d.logged.calories} / ${activeTargets.calories} kcal`
+                            : isToday
+                            ? "No food logged yet"
+                            : "No food logged"}
+                        </div>
+                        {d.logged.calories > 0 && (
+                          <div className="text-[10px] text-ink-muted">
+                            {d.logged.protein}g P · {d.logged.carbs}g C · {d.logged.fat}g F
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
 
                   <div className="w-24 text-right">
-                    {d.status === "adherent" && (
+                    {isBeforeEnrollment ? (
+                      <span className="text-[10px] px-2 py-0.5 bg-surface-subtle text-ink-muted rounded font-medium border border-border">
+                        Not enrolled
+                      </span>
+                    ) : d.status === "adherent" ? (
                       <span className="text-[10px] px-2 py-0.5 bg-brand-tint text-brand rounded font-medium border border-[#D5E6D2]">
                         On plan
                       </span>
-                    )}
-                    {d.status === "deviation" && (
+                    ) : d.status === "deviation" ? (
                       <span className="text-[10px] px-2 py-0.5 bg-[#FEF8EC] text-status-warning rounded font-medium border border-[#FDE6B8]">
                         Deviation
                       </span>
-                    )}
-                    {d.status === "missed" && (
+                    ) : d.status === "missed" ? (
                       <span className="text-[10px] px-2 py-0.5 bg-[#FDF2F0] text-status-danger rounded font-medium border border-[#F9D7D2]">
                         Missed
                       </span>
-                    )}
-                    {d.status === "today" && (
+                    ) : (
                       <span className="text-[10px] px-2 py-0.5 bg-surface-subtle text-ink-secondary rounded font-medium border border-border">
-                        In progress
+                        {isToday ? "In progress" : "Upcoming"}
                       </span>
                     )}
                   </div>
@@ -219,17 +327,86 @@ export function ProgressView() {
       </div>
 
       {/* Forward-Looking Goal Projections Section */}
-      <GoalProjectionsSection activeProfile={activeProfile} />
+      <GoalProjectionsSection activeProfile={activeProfile} activeTargets={activeTargets} />
     </div>
   );
 }
 
-function GoalProjectionsSection({ activeProfile }: { activeProfile: any }) {
+function GoalProjectionsSection({
+  activeProfile,
+  activeTargets,
+}: {
+  activeProfile: any;
+  activeTargets: any;
+}) {
   const [horizon, setHorizon] = useState<"2w" | "1m" | "3m" | "6m">("1m");
 
   const getProjectionData = () => {
     const scenario = activeProfile?.demo_scenario;
     const name = activeProfile?.name?.toLowerCase() || "";
+    const goal = activeProfile?.goal || "Fat Loss & Tone";
+
+    const isDemoMember = [
+      "00000000-0000-0000-0000-000000000011",
+      "00000000-0000-0000-0000-000000000012",
+      "00000000-0000-0000-0000-000000000013",
+      "00000000-0000-0000-0000-000000000014",
+      "00000000-0000-0000-0000-000000000015",
+      "00000000-0000-0000-0000-000000000016",
+    ].includes(activeProfile?.id);
+
+    const isOnboarding =
+      scenario === "onboarding" ||
+      (!isDemoMember &&
+        !name.includes("omar") &&
+        !name.includes("sara") &&
+        !name.includes("layla") &&
+        !name.includes("ahmed") &&
+        !name.includes("mariam") &&
+        !name.includes("youssef"));
+
+    if (isOnboarding) {
+      const delta = Number(activeProfile.target_delta) || (goal.includes("Fat") ? 4 : 3);
+      const isFatLoss = goal.toLowerCase().includes("fat") || goal.toLowerCase().includes("tone");
+      const isMuscleGain = goal.toLowerCase().includes("muscle") || goal.toLowerCase().includes("hypertrophy");
+      const sign = isFatLoss ? "-" : "+";
+
+      const map = {
+        "2w": {
+          weightChange: `${sign}${(delta * 0.15).toFixed(1)} kg`,
+          leanMass: isMuscleGain ? `+${(delta * 0.25).toFixed(1)} kg` : "+0.2 kg",
+          fatMass: isFatLoss ? `-${(delta * 0.2).toFixed(1)} kg` : "-0.1 kg",
+          milestone: "2 Weeks Active",
+          efficiency: "100% Plan Calibrated",
+          callout: `Calibrated for ${activeProfile.name}'s biometric intake. Following your ~${activeTargets.calories} kcal target sets a strong foundation for your ${goal} milestone.`,
+        },
+        "1m": {
+          weightChange: `${sign}${(delta * 0.35).toFixed(1)} kg`,
+          leanMass: isMuscleGain ? `+${(delta * 0.5).toFixed(1)} kg` : "+0.4 kg",
+          fatMass: isFatLoss ? `-${(delta * 0.45).toFixed(1)} kg` : "-0.3 kg",
+          milestone: "1 Month Active",
+          efficiency: "Steady Progress Velocity",
+          callout: `At consistent Day 1 adherence, projected ${sign}${(delta * 0.35).toFixed(1)} kg body composition progress over 1 month without plateaus.`,
+        },
+        "3m": {
+          weightChange: `${sign}${(delta * 0.75).toFixed(1)} kg`,
+          leanMass: isMuscleGain ? `+${(delta * 0.9).toFixed(1)} kg` : "+0.8 kg",
+          fatMass: isFatLoss ? `-${(delta * 0.85).toFixed(1)} kg` : "-0.6 kg",
+          milestone: "3 Months Milestone",
+          efficiency: "High Goal Momentum",
+          callout: `Consistent ${activeTargets.protein}g protein fueling ensures sustained recovery and maximal muscular density.`,
+        },
+        "6m": {
+          weightChange: `${sign}${delta.toFixed(1)} kg`,
+          leanMass: isMuscleGain ? `+${(delta * 1.3).toFixed(1)} kg` : "+1.5 kg",
+          fatMass: isFatLoss ? `-${delta.toFixed(1)} kg` : "-1.0 kg",
+          milestone: "6 Months Milestone",
+          efficiency: "Permanent Lifestyle Baseline",
+          callout: `Complete lifestyle transformation achieved with automated AI macro recalibration.`,
+        },
+      };
+      return map[horizon];
+    }
 
     if (scenario === "stable" || name.includes("omar")) {
       const map = {
@@ -314,7 +491,7 @@ function GoalProjectionsSection({ activeProfile }: { activeProfile: any }) {
           leanMass: "+0.3 kg",
           fatMass: "-0.7 kg",
           milestone: "November 20, 2026",
-          efficiency: "92% Bioavailability Rate",
+          efficiency: "92% Bioability Rate",
           callout: "Pescatarian omega-3 profile supports faster recovery and lowered systemic inflammation.",
         },
         "1m": {

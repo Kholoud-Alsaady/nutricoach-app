@@ -65,6 +65,7 @@ export interface Profile {
   goal: string | null;
   target_delta?: number | null;
   target_unit?: string | null;
+  dietary_style?: string | null;
   activity_level: string | null;
   dietary_preferences: string[];
   disliked_foods: string[];

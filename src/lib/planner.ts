@@ -13,54 +13,114 @@ export const SLOT_SHARE: Record<MealType, number> = { breakfast: 0.225, lunch: 0
 const SCALES = [0.75, 1, 1.25, 1.5, 1.75];
 
 const SYNONYMS: Record<string, string[]> = {
-  fish: ["fish", "tuna", "salmon", "seafood"],
-  seafood: ["seafood", "shellfish", "fish"],
-  shellfish: ["shellfish", "seafood"],
-  shrimp: ["shellfish"],
-  meat: ["beef", "chicken", "turkey"],
-  "red meat": ["beef"],
-  dairy: ["dairy"],
-  lactose: ["dairy"],
-  milk: ["dairy"],
-  gluten: ["gluten"],
-  wheat: ["gluten"],
-  nut: ["nuts"],
-  peanut: ["nuts"],
-  egg: ["eggs"],
-  poultry: ["chicken", "turkey"],
+  chicken: ["chicken", "poultry"],
+  poultry: ["chicken", "turkey", "poultry"],
+  turkey: ["turkey", "poultry"],
+  fish: ["fish", "tuna", "salmon", "tilapia", "seafood"],
+  tuna: ["tuna", "fish"],
+  salmon: ["salmon", "fish"],
+  tilapia: ["tilapia", "fish"],
+  seafood: ["seafood", "shellfish", "fish", "shrimp"],
+  shellfish: ["shellfish", "seafood", "shrimp"],
+  shrimp: ["shellfish", "seafood", "shrimp"],
+  meat: ["beef", "chicken", "turkey", "meat"],
+  "red meat": ["beef", "meat"],
+  beef: ["beef", "meat"],
+  dairy: ["dairy", "cheese", "milk", "yogurt", "whey", "feta", "labneh", "cottage"],
+  lactose: ["dairy", "cheese", "milk", "yogurt", "whey"],
+  milk: ["dairy", "milk", "cheese", "yogurt"],
+  gluten: ["gluten", "wheat", "bread", "pasta", "oats", "freekeh"],
+  wheat: ["gluten", "wheat", "bread", "pasta"],
+  celiac: ["gluten", "wheat", "bread", "pasta"],
+  nut: ["nuts", "peanuts", "peanut", "almond", "walnut"],
+  nuts: ["nuts", "peanuts", "peanut", "almond", "walnut"],
+  peanut: ["nuts", "peanuts", "peanut"],
+  peanuts: ["nuts", "peanuts", "peanut"],
+  egg: ["eggs", "egg"],
+  eggs: ["eggs", "egg"],
+  mushroom: ["mushroom", "mushrooms"],
+  mushrooms: ["mushroom", "mushrooms"],
 };
 
 const norm = (s: string) => s.toLowerCase().trim();
-const singular = (s: string) => norm(s).replace(/s$/, "");
+const sanitizeTerm = (s: string) =>
+  norm(s)
+    .replace(/^no\s+/i, "")
+    .replace(/-free$/i, "")
+    .replace(/\s*\/\s*.+$/i, "") // handles "Peanuts / Nuts" -> "peanuts"
+    .replace(/s$/, "");
 
-/** Does a blocked term (e.g. "fish", "chicken") apply to this food? */
-export function foodMatchesTerm(food: Pick<Food, "tags" | "ingredients" | "name">, term: string): boolean {
-  const t = singular(term);
-  if (!t) return false;
-  const tagHits = SYNONYMS[t] ?? SYNONYMS[norm(term)] ?? [t];
-  if (food.tags.some((tag) => tagHits.includes(norm(tag)) || singular(tag) === t)) return true;
-  if (food.ingredients.some((i) => norm(i).includes(t))) return true;
-  return norm(food.name).includes(t);
+/** Does a blocked term (e.g. "fish", "chicken", "no chicken") apply to this food? */
+export function foodMatchesTerm(food: Pick<Food, "tags" | "ingredients" | "name">, rawTerm: string): boolean {
+  const clean = sanitizeTerm(rawTerm);
+  if (!clean || clean === "none") return false;
+
+  const rawNorm = norm(rawTerm);
+  const tagHits = SYNONYMS[clean] ?? SYNONYMS[rawNorm] ?? [clean];
+
+  // Check food tags
+  if (food.tags.some((tag) => {
+    const nTag = norm(tag);
+    const sTag = sanitizeTerm(tag);
+    return tagHits.includes(nTag) || tagHits.includes(sTag) || sTag === clean;
+  })) {
+    return true;
+  }
+
+  // Check food ingredients
+  if (food.ingredients.some((i) => {
+    const nIng = norm(i);
+    return tagHits.some((hit) => nIng.includes(hit)) || nIng.includes(clean);
+  })) {
+    return true;
+  }
+
+  // Check food name
+  const nName = norm(food.name);
+  if (tagHits.some((hit) => nName.includes(hit)) || nName.includes(clean)) {
+    return true;
+  }
+
+  return false;
 }
 
 export interface PlanningPrefs {
   disliked_foods: string[];
   allergies: string[];
   dietary_preferences: string[];
+  dietary_style?: string | null;
 }
 
-export function prefsFromProfile(p: Pick<Profile, "disliked_foods" | "allergies" | "dietary_preferences">): PlanningPrefs {
+export function prefsFromProfile(p: Pick<Profile, "disliked_foods" | "allergies" | "dietary_preferences"> & { dietary_style?: string | null }): PlanningPrefs {
   return {
     disliked_foods: p.disliked_foods ?? [],
     allergies: p.allergies ?? [],
     dietary_preferences: p.dietary_preferences ?? [],
+    dietary_style: p.dietary_style ?? null,
   };
 }
 
 export function isAllowed(food: Food, prefs: PlanningPrefs, extraAvoid: string[] = []): boolean {
   const blocked = [...prefs.disliked_foods, ...prefs.allergies, ...extraAvoid];
   if (blocked.some((b) => foodMatchesTerm(food, b))) return false;
-  if (prefs.dietary_preferences.map(norm).includes("vegetarian") && !food.tags.includes("vegetarian")) return false;
+
+  const allPrefs = [
+    ...prefs.dietary_preferences.map(norm),
+    ...(prefs.dietary_style ? [norm(prefs.dietary_style)] : []),
+  ];
+
+  // Vegetarian guardrail
+  if (allPrefs.some((p) => p.includes("vegetarian")) && !food.tags.includes("vegetarian")) {
+    return false;
+  }
+
+  // Pescatarian guardrail (no chicken, turkey, beef, red meat)
+  if (allPrefs.some((p) => p.includes("pescatarian"))) {
+    const meatTags = ["chicken", "turkey", "beef", "meat"];
+    if (food.tags.some((t) => meatTags.includes(norm(t)))) return false;
+    if (food.ingredients.some((i) => meatTags.some((m) => norm(i).includes(m)))) return false;
+  }
+
   return true;
 }
 

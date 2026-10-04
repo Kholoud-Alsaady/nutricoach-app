@@ -12,6 +12,50 @@ export function TodayTipCard() {
     const scenario = activeProfile?.demo_scenario;
     const name = activeProfile?.name?.toLowerCase() || "";
 
+    const isDemoMember = [
+      "00000000-0000-0000-0000-000000000011",
+      "00000000-0000-0000-0000-000000000012",
+      "00000000-0000-0000-0000-000000000013",
+      "00000000-0000-0000-0000-000000000014",
+      "00000000-0000-0000-0000-000000000015",
+      "00000000-0000-0000-0000-000000000016",
+    ].includes(activeProfile?.id);
+
+    const isOnboarding =
+      scenario === "onboarding" ||
+      (!isDemoMember &&
+        !name.includes("omar") &&
+        !name.includes("sara") &&
+        !name.includes("layla") &&
+        !name.includes("ahmed") &&
+        !name.includes("mariam") &&
+        !name.includes("youssef"));
+
+    if (isOnboarding) {
+      return {
+        badge: "Getting Started · Day 1",
+        title: `Welcome to NutriCoach, ${activeProfile?.name || "Member"}`,
+        summary:
+          "Your adaptive nutrition journey starts today. Log your meals as you eat to establish your baseline and let AI personalize your daily targets.",
+        readTime: "2 min read",
+        articleTitle: "Getting Started: Building Your Personalized Nutrition Baseline",
+        articleSections: [
+          {
+            heading: "How Adaptive Nutrition Works",
+            text: `NutriCoach doesn't lock you into rigid diets. As you log your actual meals throughout the day, the AI automatically rebalances subsequent meals so you stay on track for your ${activeProfile?.goal || "goals"} without guilt.`,
+          },
+          {
+            heading: "Your Biometric Profile & Goals",
+            text: `Your daily targets are calibrated to your age, sex, weight, and activity level. Active dietary restrictions and allergen exclusions are strictly enforced across all recommended meal options.`,
+          },
+          {
+            heading: "Day 1 Action Steps",
+            text: "1. Review your planned meals for today under Meal Plan.\n2. Tap 'Log Eaten' as you finish each meal.\n3. Ask the AI assistant anytime if you need a quick swap or dining-out recommendation.",
+          },
+        ],
+      };
+    }
+
     if (scenario === "stable" || name.includes("omar")) {
       return {
         badge: "Hypertrophy & Protein Timing",

@@ -20,119 +20,161 @@ export function LandingPortal() {
 
   // New member form state
   const [newName, setNewName] = useState("");
-  const [newGoal, setNewGoal] = useState("Fat Loss & Tone");
-  const [newTargetDelta, setNewTargetDelta] = useState<number>(5);
-  const [newTargetUnit, setNewTargetUnit] = useState<"kg" | "% body fat">("kg");
-  const [newCalories, setNewCalories] = useState<number>(1750);
-  const [newProtein, setNewProtein] = useState<number>(140);
   const [newSex, setNewSex] = useState<"male" | "female">("male");
+  const [newAge, setNewAge] = useState<number>(28);
+  const [newHeight, setNewHeight] = useState<number>(168);
+  const [newWeight, setNewWeight] = useState<number>(72);
+  const [newGoal, setNewGoal] = useState("Fat Loss & Tone");
+  const [newTargetDelta, setNewTargetDelta] = useState<number>(4);
+  const [newTargetUnit, setNewTargetUnit] = useState<"kg" | "% body fat">("kg");
+  const [newDietaryStyle, setNewDietaryStyle] = useState<string>("Standard / Omnivore");
 
-  // Restrictions and Allergies
-  const [selectedRestrictions, setSelectedRestrictions] = useState<string[]>([]);
+  // Restrictions, Allergies, Dislikes
+  const [selectedDislikes, setSelectedDislikes] = useState<string[]>([]);
   const [customDislikeInput, setCustomDislikeInput] = useState("");
   const [selectedAllergies, setSelectedAllergies] = useState<string[]>([]);
   const [customAllergyInput, setCustomAllergyInput] = useState("");
 
-  const commonRestrictions = [
-    "No Chicken",
-    "No Red Meat",
-    "Vegetarian",
-    "Pescatarian",
-    "Dairy-Free",
-    "Low Sodium",
-  ];
+  // Manual Override Toggle & Custom Values
+  const [isManualOverride, setIsManualOverride] = useState(false);
+  const [customCalories, setCustomCalories] = useState<number>(1850);
+  const [customProtein, setCustomProtein] = useState<number>(144);
 
-  const commonAllergies = [
-    "Peanut / Nut Allergy",
-    "Lactose / Dairy",
-    "Gluten / Celiac",
-    "Shellfish",
-  ];
+  const commonDislikes = ["Chicken", "Tuna", "Mushrooms", "Red Meat", "Eggs", "Dairy"];
+  const commonAllergies = ["Peanuts / Nuts", "Dairy / Lactose", "Gluten", "Shellfish", "None"];
+  const dietaryStyles = ["Standard / Omnivore", "Vegetarian", "Pescatarian", "Keto / Low-Carb"];
 
-  const handleGoalChange = (goal: string) => {
-    setNewGoal(goal);
+  // Mifflin-St Jeor BMR & TDEE Auto Calculation
+  const calculateTargets = (
+    sex: "male" | "female",
+    age: number,
+    height: number,
+    weight: number,
+    goal: string
+  ) => {
+    const w = Number(weight) || 72;
+    const h = Number(height) || 168;
+    const a = Number(age) || 28;
+
+    // Mifflin-St Jeor formula
+    const bmr =
+      sex === "male"
+        ? 10 * w + 6.25 * h - 5 * a + 5
+        : 10 * w + 6.25 * h - 5 * a - 161;
+
+    // 1.45 Gym activity multiplier
+    const tdee = Math.round(bmr * 1.45);
+
+    let calories = tdee;
+    let protein = Math.round(w * 1.8);
+
     if (goal === "Fat Loss & Tone") {
-      setNewCalories(1750);
-      setNewProtein(140);
-      setNewTargetDelta(5);
+      calories = Math.max(1250, tdee - 400);
+      protein = Math.round(w * 2.0);
     } else if (goal === "Lean Muscle Gain & Hypertrophy") {
-      setNewCalories(2450);
-      setNewProtein(170);
-      setNewTargetDelta(3);
+      calories = tdee + 250;
+      protein = Math.round(w * 2.0);
     } else if (goal === "Endurance & Athletic Performance") {
-      setNewCalories(2250);
-      setNewProtein(135);
-      setNewTargetDelta(2);
+      calories = tdee + 100;
+      protein = Math.round(w * 1.8);
     } else {
-      setNewCalories(2000);
-      setNewProtein(130);
-      setNewTargetDelta(0);
+      // Maintenance & General Health
+      calories = tdee;
+      protein = Math.round(w * 1.6);
     }
+
+    return { bmr: Math.round(bmr), tdee, calories, protein };
   };
 
-  const toggleRestriction = (item: string) => {
-    setSelectedRestrictions((prev) =>
+  const computedTargets = calculateTargets(newSex, newAge, newHeight, newWeight, newGoal);
+  const effectiveCalories = isManualOverride ? customCalories : computedTargets.calories;
+  const effectiveProtein = isManualOverride ? customProtein : computedTargets.protein;
+
+  const toggleDislike = (item: string) => {
+    setSelectedDislikes((prev) =>
       prev.includes(item) ? prev.filter((i) => i !== item) : [...prev, item]
     );
   };
 
-  const addCustomDislike = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!customDislikeInput.trim()) return;
+  const addCustomDislike = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     const item = customDislikeInput.trim();
-    if (!selectedRestrictions.includes(item)) {
-      setSelectedRestrictions((prev) => [...prev, item]);
+    if (!item) return;
+    if (!selectedDislikes.some((d) => d.toLowerCase() === item.toLowerCase())) {
+      setSelectedDislikes((prev) => [...prev, item]);
     }
     setCustomDislikeInput("");
   };
 
-  const toggleAllergy = (item: string) => {
-    setSelectedAllergies((prev) =>
-      prev.includes(item) ? prev.filter((i) => i !== item) : [...prev, item]
-    );
+  const removeDislike = (item: string) => {
+    setSelectedDislikes((prev) => prev.filter((i) => i !== item));
   };
 
-  const addCustomAllergy = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!customAllergyInput.trim()) return;
+  const toggleAllergy = (item: string) => {
+    if (item === "None") {
+      setSelectedAllergies((prev) => (prev.includes("None") ? [] : ["None"]));
+      return;
+    }
+    setSelectedAllergies((prev) => {
+      const filtered = prev.filter((i) => i !== "None");
+      return filtered.includes(item) ? filtered.filter((i) => i !== item) : [...filtered, item];
+    });
+  };
+
+  const addCustomAllergy = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     const item = customAllergyInput.trim();
-    if (!selectedAllergies.includes(item)) {
-      setSelectedAllergies((prev) => [...prev, item]);
+    if (!item) return;
+    if (!selectedAllergies.some((a) => a.toLowerCase() === item.toLowerCase())) {
+      setSelectedAllergies((prev) => [...prev.filter((i) => i !== "None"), item]);
     }
     setCustomAllergyInput("");
   };
 
+  const removeAllergy = (item: string) => {
+    setSelectedAllergies((prev) => prev.filter((i) => i !== item));
+  };
+
   const getDynamicGoalPreview = () => {
     if (newGoal === "Fat Loss & Tone") {
-      return `Goal: Lose ${newTargetDelta} ${newTargetUnit === "kg" ? "kg" : "% body fat"}`;
+      return `Lose ${newTargetDelta} ${newTargetUnit === "kg" ? "kg" : "% body fat"}`;
     }
     if (newGoal === "Lean Muscle Gain & Hypertrophy") {
-      return `Goal: Gain +${newTargetDelta} ${newTargetUnit === "kg" ? "kg lean muscle" : "% muscle mass"}`;
+      return `Gain +${newTargetDelta} ${newTargetUnit === "kg" ? "kg lean muscle" : "% muscle mass"}`;
     }
     if (newGoal === "Endurance & Athletic Performance") {
-      return `Goal: +${newTargetDelta} ${newTargetUnit === "kg" ? "kg stamina efficiency" : "% VO2 endurance"}`;
+      return `+${newTargetDelta} ${newTargetUnit === "kg" ? "kg stamina efficiency" : "% VO2 endurance"}`;
     }
-    return `Goal: Maintain ±${newTargetDelta} ${newTargetUnit === "kg" ? "kg weight" : "% body composition"}`;
+    return `Maintain ±${newTargetDelta} ${newTargetUnit === "kg" ? "kg weight" : "% body composition"}`;
   };
 
   const handleCreateMember = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName.trim()) return;
+
     addNewMember({
       name: newName.trim(),
-      calorieGoal: Number(newCalories) || 2000,
-      proteinGoal: Number(newProtein) || 140,
+      sex: newSex,
+      age: Number(newAge) || 28,
+      height: Number(newHeight) || 168,
+      weight: Number(newWeight) || 72,
+      calorieGoal: effectiveCalories,
+      proteinGoal: effectiveProtein,
       dietGoal: newGoal,
       targetDelta: Number(newTargetDelta) || 0,
       targetUnit: newTargetUnit,
-      dietaryRestrictions: selectedRestrictions.filter((r) => !r.toLowerCase().includes("no ")),
-      dislikedFoods: selectedRestrictions,
-      allergies: selectedAllergies,
-      sex: newSex,
+      dietaryStyle: newDietaryStyle,
+      dietaryRestrictions: selectedDislikes.filter((r) => !r.toLowerCase().startsWith("no ")),
+      dislikedFoods: selectedDislikes,
+      allergies: selectedAllergies.filter((a) => a !== "None"),
     });
+
     setShowCreateModal(false);
     setShowMemberSelector(false);
     setNewName("");
+    setSelectedDislikes([]);
+    setSelectedAllergies([]);
+    setIsManualOverride(false);
   };
 
   return (
@@ -301,7 +343,7 @@ export function LandingPortal() {
         <div className="fixed inset-0 bg-ink-primary/25 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <form
             onSubmit={handleCreateMember}
-            className="bg-surface rounded-xl border border-border max-w-lg w-full p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto"
+            className="bg-surface rounded-xl border border-border max-w-xl w-full p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto"
           >
             <div className="flex items-center justify-between border-b border-border pb-3">
               <div>
@@ -309,7 +351,7 @@ export function LandingPortal() {
                   <Sparkles className="w-4 h-4 text-brand" />
                   <span>Create New Member Profile</span>
                 </h3>
-                <p className="text-[11px] text-ink-muted">Configure goals, quantitative targets, dietary preferences & allergies</p>
+                <p className="text-[11px] text-ink-muted">Complete biometric intake, primary goal, dietary style & allergen guardrails</p>
               </div>
               <button
                 type="button"
@@ -320,217 +362,378 @@ export function LandingPortal() {
               </button>
             </div>
 
-            <div className="space-y-3.5 text-xs">
-              {/* Full Name & Sex */}
-              <div className="grid grid-cols-3 gap-3">
-                <div className="col-span-2">
-                  <label className="block font-medium text-ink-secondary mb-1">Full Name</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Tarek Mansour"
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    className="w-full bg-surface-subtle border border-border rounded-md px-3 py-1.5 text-ink-primary focus:outline-none focus:border-brand"
-                  />
-                </div>
-                <div>
-                  <label className="block font-medium text-ink-secondary mb-1">Sex</label>
-                  <select
-                    value={newSex}
-                    onChange={(e) => setNewSex(e.target.value as "male" | "female")}
-                    className="w-full bg-surface-subtle border border-border rounded-md px-2.5 py-1.5 text-ink-primary focus:outline-none focus:border-brand font-medium"
-                  >
-                    <option value="male">Male</option>
-                    <option value="female">Female</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Primary Nutrition Goal Dropdown */}
-              <div>
-                <label className="block font-medium text-ink-secondary mb-1">Primary Nutrition Goal</label>
-                <select
-                  value={newGoal}
-                  onChange={(e) => handleGoalChange(e.target.value)}
-                  className="w-full bg-surface-subtle border border-border rounded-md px-3 py-1.5 text-ink-primary focus:outline-none focus:border-brand font-medium text-xs"
-                >
-                  <option value="Fat Loss & Tone">Fat Loss & Tone</option>
-                  <option value="Lean Muscle Gain & Hypertrophy">Lean Muscle Gain & Hypertrophy</option>
-                  <option value="Endurance & Athletic Performance">Endurance & Athletic Performance</option>
-                  <option value="Maintenance & General Health">Maintenance & General Health</option>
-                </select>
-              </div>
-
-              {/* Quantitative Target (Goal Count & Metric) */}
-              <div className="bg-surface-subtle/70 rounded-lg border border-border p-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="font-medium text-ink-secondary text-[11px]">Quantitative Goal Target</label>
-                  <span className="text-[10px] text-ink-muted">Measurable milestone</span>
+            <div className="space-y-4 text-xs">
+              {/* Section A: Biometrics & Demographics */}
+              <div className="space-y-2">
+                <div className="text-[11px] font-semibold text-ink-primary uppercase tracking-wide flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-brand" />
+                  <span>A. Biometrics & Demographics</span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2.5 items-center">
-                  <div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="col-span-2">
+                    <label className="block font-medium text-ink-secondary mb-1">Full Name</label>
                     <input
-                      type="number"
-                      min={0}
-                      max={50}
-                      value={newTargetDelta}
-                      onChange={(e) => setNewTargetDelta(Number(e.target.value))}
-                      placeholder="e.g. 5"
-                      className="w-full bg-surface border border-border rounded-md px-3 py-1.5 text-ink-primary focus:outline-none focus:border-brand font-semibold text-xs"
+                      type="text"
+                      required
+                      placeholder="e.g. Hala Mahmoud"
+                      value={newName}
+                      onChange={(e) => setNewName(e.target.value)}
+                      className="w-full bg-surface-subtle border border-border rounded-md px-3 py-1.5 text-ink-primary focus:outline-none focus:border-brand font-medium text-xs"
                     />
                   </div>
 
-                  <div className="flex rounded-md bg-surface p-0.5 border border-border">
+                  <div>
+                    <label className="block font-medium text-ink-secondary mb-1">Sex</label>
+                    <div className="flex rounded-md bg-surface-subtle p-0.5 border border-border">
+                      <button
+                        type="button"
+                        onClick={() => setNewSex("male")}
+                        className={`flex-1 py-1.5 text-xs font-medium rounded transition-all ${
+                          newSex === "male"
+                            ? "bg-brand text-white shadow-hairline"
+                            : "text-ink-secondary hover:text-ink-primary"
+                        }`}
+                      >
+                        Male
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setNewSex("female")}
+                        className={`flex-1 py-1.5 text-xs font-medium rounded transition-all ${
+                          newSex === "female"
+                            ? "bg-brand text-white shadow-hairline"
+                            : "text-ink-secondary hover:text-ink-primary"
+                        }`}
+                      >
+                        Female
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block font-medium text-ink-secondary mb-1">Age (Years)</label>
+                    <input
+                      type="number"
+                      min={14}
+                      max={90}
+                      required
+                      value={newAge}
+                      onChange={(e) => setNewAge(Number(e.target.value))}
+                      className="w-full bg-surface-subtle border border-border rounded-md px-3 py-1.5 text-ink-primary focus:outline-none focus:border-brand font-medium text-xs"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-medium text-ink-secondary mb-1">Height (cm)</label>
+                    <input
+                      type="number"
+                      min={120}
+                      max={230}
+                      required
+                      value={newHeight}
+                      onChange={(e) => setNewHeight(Number(e.target.value))}
+                      className="w-full bg-surface-subtle border border-border rounded-md px-3 py-1.5 text-ink-primary focus:outline-none focus:border-brand font-medium text-xs"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-medium text-ink-secondary mb-1">Current Weight (kg)</label>
+                    <input
+                      type="number"
+                      min={35}
+                      max={250}
+                      required
+                      value={newWeight}
+                      onChange={(e) => setNewWeight(Number(e.target.value))}
+                      className="w-full bg-surface-subtle border border-border rounded-md px-3 py-1.5 text-ink-primary focus:outline-none focus:border-brand font-medium text-xs"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Section B: Goal & Target Delta */}
+              <div className="space-y-2 pt-2 border-t border-border">
+                <div className="text-[11px] font-semibold text-ink-primary uppercase tracking-wide flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-brand" />
+                  <span>B. Goal & Target Delta</span>
+                </div>
+
+                <div>
+                  <label className="block font-medium text-ink-secondary mb-1">Primary Goal</label>
+                  <select
+                    value={newGoal}
+                    onChange={(e) => setNewGoal(e.target.value)}
+                    className="w-full bg-surface-subtle border border-border rounded-md px-3 py-1.5 text-ink-primary focus:outline-none focus:border-brand font-medium text-xs"
+                  >
+                    <option value="Fat Loss & Tone">Fat Loss & Tone</option>
+                    <option value="Lean Muscle Gain & Hypertrophy">Lean Muscle Gain & Hypertrophy</option>
+                    <option value="Endurance & Athletic Performance">Endurance & Athletic Performance</option>
+                    <option value="Maintenance & General Health">Maintenance & General Health</option>
+                  </select>
+                </div>
+
+                <div className="bg-surface-subtle/70 rounded-lg border border-border p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="font-medium text-ink-secondary text-[11px]">Target Weight Delta</label>
+                    <span className="text-[10px] text-ink-muted">Measurable milestone</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2.5 items-center">
+                    <div>
+                      <input
+                        type="number"
+                        min={0}
+                        max={50}
+                        value={newTargetDelta}
+                        onChange={(e) => setNewTargetDelta(Number(e.target.value))}
+                        placeholder="e.g. 4"
+                        className="w-full bg-surface border border-border rounded-md px-3 py-1.5 text-ink-primary focus:outline-none focus:border-brand font-semibold text-xs"
+                      />
+                    </div>
+
+                    <div className="flex rounded-md bg-surface p-0.5 border border-border">
+                      <button
+                        type="button"
+                        onClick={() => setNewTargetUnit("kg")}
+                        className={`flex-1 py-1 text-[11px] font-medium rounded transition-all ${
+                          newTargetUnit === "kg"
+                            ? "bg-brand text-white shadow-hairline"
+                            : "text-ink-muted hover:text-ink-primary"
+                        }`}
+                      >
+                        kg / kilos
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setNewTargetUnit("% body fat")}
+                        className={`flex-1 py-1 text-[11px] font-medium rounded transition-all ${
+                          newTargetUnit === "% body fat"
+                            ? "bg-brand text-white shadow-hairline"
+                            : "text-ink-muted hover:text-ink-primary"
+                        }`}
+                      >
+                        % body fat
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Dynamic Preview Text */}
+                  <div className="text-[11px] text-brand font-medium bg-brand-tint/60 px-2.5 py-1 rounded border border-[#D5E6D2] flex items-center justify-between">
+                    <span>🎯 Goal: {getDynamicGoalPreview()}</span>
+                    <span className="text-[10px] text-brand font-semibold">Active Milestone</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Section C: Dietary Preferences, Allergies & Exclusions */}
+              <div className="space-y-3 pt-2 border-t border-border">
+                <div className="text-[11px] font-semibold text-ink-primary uppercase tracking-wide flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-brand" />
+                  <span>C. Dietary Preferences, Allergies & Exclusions</span>
+                </div>
+
+                {/* Dietary Style */}
+                <div className="space-y-1">
+                  <label className="block font-medium text-ink-secondary text-[11px]">Dietary Style</label>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {dietaryStyles.map((style) => {
+                      const active = newDietaryStyle === style;
+                      return (
+                        <button
+                          key={style}
+                          type="button"
+                          onClick={() => setNewDietaryStyle(style)}
+                          className={`text-[11px] py-1.5 px-2 rounded-md border text-center transition-all ${
+                            active
+                              ? "bg-brand-tint text-brand border-[#D5E6D2] font-semibold"
+                              : "bg-surface-subtle text-ink-secondary border-border hover:bg-surface"
+                          }`}
+                        >
+                          {active ? "✓ " : ""}{style}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Allergies Multi-Select Tags */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="font-medium text-status-danger text-xs flex items-center gap-1">
+                      <span>⚠️ Allergies (Strict Exclusion)</span>
+                    </label>
+                    <span className="text-[10px] text-ink-muted">High priority guardrail</span>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5">
+                    {commonAllergies.map((allergy) => {
+                      const active = selectedAllergies.includes(allergy);
+                      return (
+                        <button
+                          key={allergy}
+                          type="button"
+                          onClick={() => toggleAllergy(allergy)}
+                          className={`text-[11px] px-2.5 py-1 rounded-md border transition-all ${
+                            active
+                              ? "bg-[#FEF2F2] text-status-danger border-[#FCA5A5] font-semibold"
+                              : "bg-surface-subtle text-ink-secondary border-border hover:bg-surface"
+                          }`}
+                        >
+                          {active ? "✓ " : ""}{allergy}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Custom Allergen Input */}
+                  <div className="flex gap-1.5 pt-0.5">
+                    <input
+                      type="text"
+                      placeholder="+ Add custom allergy (e.g. Sesame, Soy)"
+                      value={customAllergyInput}
+                      onChange={(e) => setCustomAllergyInput(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && addCustomAllergy(e)}
+                      className="flex-1 bg-surface-subtle border border-border rounded-md px-2.5 py-1 text-xs text-ink-primary focus:outline-none focus:border-brand"
+                    />
                     <button
                       type="button"
-                      onClick={() => setNewTargetUnit("kg")}
-                      className={`flex-1 py-1 text-[11px] font-medium rounded transition-all ${
-                        newTargetUnit === "kg"
-                          ? "bg-brand text-white shadow-hairline"
-                          : "text-ink-muted hover:text-ink-primary"
-                      }`}
+                      onClick={() => addCustomAllergy()}
+                      className="text-xs bg-surface hover:bg-surface-hover px-2.5 py-1 rounded-md border border-border text-ink-primary font-medium"
                     >
-                      kg / kilos
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setNewTargetUnit("% body fat")}
-                      className={`flex-1 py-1 text-[11px] font-medium rounded transition-all ${
-                        newTargetUnit === "% body fat"
-                          ? "bg-brand text-white shadow-hairline"
-                          : "text-ink-muted hover:text-ink-primary"
-                      }`}
-                    >
-                      % body fat
+                      Add
                     </button>
                   </div>
                 </div>
 
-                {/* Dynamic Preview Text */}
-                <div className="text-[11px] text-brand font-medium bg-brand-tint/60 px-2.5 py-1 rounded border border-[#D5E6D2] flex items-center justify-between">
-                  <span>🎯 {getDynamicGoalPreview()}</span>
-                  <span className="text-[10px] text-brand font-semibold">Active Objective</span>
+                {/* Disliked Foods (Tag input & chips) */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="font-medium text-ink-secondary text-xs">Disliked Foods & Excluded Ingredients</label>
+                    <span className="text-[10px] text-ink-muted">Replaced in meal planner</span>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5">
+                    {commonDislikes.map((item) => {
+                      const active = selectedDislikes.includes(item);
+                      return (
+                        <button
+                          key={item}
+                          type="button"
+                          onClick={() => toggleDislike(item)}
+                          className={`text-[11px] px-2.5 py-1 rounded-md border transition-all ${
+                            active
+                              ? "bg-brand-tint text-brand border-[#D5E6D2] font-semibold"
+                              : "bg-surface-subtle text-ink-secondary border-border hover:bg-surface"
+                          }`}
+                        >
+                          {active ? "✓ " : ""}{item}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Active Excluded Tags */}
+                  {selectedDislikes.length > 0 && (
+                    <div className="flex flex-wrap gap-1 pt-1">
+                      {selectedDislikes.map((d) => (
+                        <span
+                          key={d}
+                          className="inline-flex items-center gap-1 text-[11px] bg-brand-tint text-brand px-2 py-0.5 rounded border border-[#D5E6D2] font-medium"
+                        >
+                          <span>{d}</span>
+                          <button
+                            type="button"
+                            onClick={() => removeDislike(d)}
+                            className="hover:text-status-danger p-0.5"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Custom Excluded Ingredient Input */}
+                  <div className="flex gap-1.5 pt-0.5">
+                    <input
+                      type="text"
+                      placeholder="Type ingredients to exclude (e.g. chicken, tuna, mushrooms)"
+                      value={customDislikeInput}
+                      onChange={(e) => setCustomDislikeInput(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && addCustomDislike(e)}
+                      className="flex-1 bg-surface-subtle border border-border rounded-md px-2.5 py-1 text-xs text-ink-primary focus:outline-none focus:border-brand"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => addCustomDislike()}
+                      className="text-xs bg-surface hover:bg-surface-hover px-2.5 py-1 rounded-md border border-border text-ink-primary font-medium"
+                    >
+                      Add
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              {/* Prescribed Daily Calories & Protein */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-medium text-ink-secondary mb-1">Daily Calories (kcal)</label>
-                  <input
-                    type="number"
-                    value={newCalories}
-                    onChange={(e) => setNewCalories(Number(e.target.value))}
-                    className="w-full bg-surface-subtle border border-border rounded-md px-3 py-1.5 text-ink-primary focus:outline-none focus:border-brand font-semibold"
-                  />
-                </div>
-                <div>
-                  <label className="block font-medium text-ink-secondary mb-1">Daily Protein (g)</label>
-                  <input
-                    type="number"
-                    value={newProtein}
-                    onChange={(e) => setNewProtein(Number(e.target.value))}
-                    className="w-full bg-surface-subtle border border-border rounded-md px-3 py-1.5 text-ink-primary focus:outline-none focus:border-brand font-semibold"
-                  />
-                </div>
-              </div>
-
-              {/* Dietary Restrictions & Dislikes (Tags / Multi-Select) */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="font-medium text-ink-secondary text-xs">Dietary Restrictions & Dislikes</label>
-                  <span className="text-[10px] text-ink-muted">Strictly excluded in plan</span>
+              {/* Section D: Automatic Target Calculation */}
+              <div className="space-y-2.5 pt-2 border-t border-border">
+                <div className="text-[11px] font-semibold text-ink-primary uppercase tracking-wide flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-brand" />
+                  <span>D. Daily Nutrition Targets</span>
                 </div>
 
-                <div className="flex flex-wrap gap-1.5">
-                  {commonRestrictions.map((item) => {
-                    const active = selectedRestrictions.includes(item);
-                    return (
-                      <button
-                        key={item}
-                        type="button"
-                        onClick={() => toggleRestriction(item)}
-                        className={`text-[11px] px-2.5 py-1 rounded-md border transition-all ${
-                          active
-                            ? "bg-brand-tint text-brand border-[#D5E6D2] font-semibold"
-                            : "bg-surface-subtle text-ink-secondary border-border hover:bg-surface"
-                        }`}
-                      >
-                        {active ? "✓ " : ""}{item}
-                      </button>
-                    );
-                  })}
-                </div>
+                <div className="bg-brand-tint/60 border border-[#D5E6D2] rounded-lg p-3 flex items-center justify-between gap-3">
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-semibold text-brand flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Recommended: ~{computedTargets.calories.toLocaleString()} kcal · {computedTargets.protein}g Protein</span>
+                    </div>
+                    <div className="text-[10px] text-ink-secondary">
+                      Mifflin-St Jeor BMR ({computedTargets.bmr} kcal) + 1.45 TDEE ({computedTargets.tdee} kcal) · {newGoal}
+                    </div>
+                  </div>
 
-                {/* Custom Excluded Ingredient Input */}
-                <div className="flex gap-1.5 pt-1">
-                  <input
-                    type="text"
-                    placeholder="+ Add excluded ingredient (e.g., chicken, tuna, eggs)"
-                    value={customDislikeInput}
-                    onChange={(e) => setCustomDislikeInput(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && addCustomDislike(e)}
-                    className="flex-1 bg-surface-subtle border border-border rounded-md px-2.5 py-1 text-xs text-ink-primary focus:outline-none focus:border-brand"
-                  />
                   <button
                     type="button"
-                    onClick={addCustomDislike}
-                    className="text-xs bg-surface hover:bg-surface-hover px-2.5 py-1 rounded-md border border-border text-ink-primary font-medium"
+                    onClick={() => {
+                      if (!isManualOverride) {
+                        setCustomCalories(computedTargets.calories);
+                        setCustomProtein(computedTargets.protein);
+                      }
+                      setIsManualOverride(!isManualOverride);
+                    }}
+                    className="text-[11px] font-semibold px-2.5 py-1 rounded bg-surface border border-border text-ink-primary hover:bg-surface-subtle transition-all shrink-0"
                   >
-                    Add
+                    {isManualOverride ? "Use Auto Calculated" : "Edit Manually"}
                   </button>
                 </div>
-              </div>
 
-              {/* Allergies & Intolerances (Crucial Guardrails) */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="font-medium text-status-danger text-xs flex items-center gap-1">
-                    <span>⚠️ Allergies & Intolerances</span>
-                  </label>
-                  <span className="text-[10px] text-ink-muted">High priority guardrail</span>
-                </div>
-
-                <div className="flex flex-wrap gap-1.5">
-                  {commonAllergies.map((allergy) => {
-                    const active = selectedAllergies.includes(allergy);
-                    return (
-                      <button
-                        key={allergy}
-                        type="button"
-                        onClick={() => toggleAllergy(allergy)}
-                        className={`text-[11px] px-2.5 py-1 rounded-md border transition-all ${
-                          active
-                            ? "bg-[#FEF2F2] text-status-danger border-[#FCA5A5] font-semibold"
-                            : "bg-surface-subtle text-ink-secondary border-border hover:bg-surface"
-                        }`}
-                      >
-                        {active ? "⚠️ " : ""}{allergy}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Custom Allergen Input */}
-                <div className="flex gap-1.5 pt-1">
-                  <input
-                    type="text"
-                    placeholder="+ Add custom allergy (e.g. Sesame, Soy)"
-                    value={customAllergyInput}
-                    onChange={(e) => setCustomAllergyInput(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && addCustomAllergy(e)}
-                    className="flex-1 bg-surface-subtle border border-border rounded-md px-2.5 py-1 text-xs text-ink-primary focus:outline-none focus:border-brand"
-                  />
-                  <button
-                    type="button"
-                    onClick={addCustomAllergy}
-                    className="text-xs bg-surface hover:bg-surface-hover px-2.5 py-1 rounded-md border border-border text-ink-primary font-medium"
-                  >
-                    Add
-                  </button>
-                </div>
+                {isManualOverride && (
+                  <div className="grid grid-cols-2 gap-3 p-3 bg-surface-subtle rounded-lg border border-border">
+                    <div>
+                      <label className="block font-medium text-ink-secondary mb-1">Custom Daily Calories (kcal)</label>
+                      <input
+                        type="number"
+                        min={800}
+                        max={6000}
+                        value={customCalories}
+                        onChange={(e) => setCustomCalories(Number(e.target.value))}
+                        className="w-full bg-surface border border-border rounded-md px-3 py-1.5 text-ink-primary focus:outline-none focus:border-brand font-semibold"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-medium text-ink-secondary mb-1">Custom Daily Protein (g)</label>
+                      <input
+                        type="number"
+                        min={30}
+                        max={350}
+                        value={customProtein}
+                        onChange={(e) => setCustomProtein(Number(e.target.value))}
+                        className="w-full bg-surface border border-border rounded-md px-3 py-1.5 text-ink-primary focus:outline-none focus:border-brand font-semibold"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 

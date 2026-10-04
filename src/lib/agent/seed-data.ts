@@ -57,11 +57,12 @@ export interface DemoMemberSpec {
   goal: string;
   target_delta?: number | null;
   target_unit?: string | null;
+  dietary_style?: string | null;
   activity_level: string;
   dietary_preferences: string[];
   disliked_foods: string[];
   allergies: string[];
-  scenario: "stable" | "single_miss" | "repeated_deviation" | "protein_gap" | "preference_shift" | "inactive";
+  scenario: "stable" | "single_miss" | "repeated_deviation" | "protein_gap" | "preference_shift" | "inactive" | "onboarding" | string;
   scenarioLabel: string;
   scenarioDescription: string;
   targets: { calories: number; protein: number; carbs: number; fat: number; water: number };

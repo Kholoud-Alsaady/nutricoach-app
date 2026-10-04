@@ -76,15 +76,19 @@ interface NutriCoachContextType {
   selectMemberAndEnter: (id: string) => void;
   addNewMember: (params: {
     name: string;
+    sex: "male" | "female";
+    age?: number;
+    height?: number;
+    weight?: number;
     calorieGoal: number;
     proteinGoal: number;
     dietGoal: string;
     targetDelta?: number;
     targetUnit?: string;
+    dietaryStyle?: string;
     dietaryRestrictions?: string[];
     dislikedFoods?: string[];
     allergies?: string[];
-    sex: "male" | "female";
   }) => void;
   
   // Navigation
@@ -227,35 +231,50 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
   // Add dynamically created new member with preferences, allergies and quantitative targets
   const addNewMember = ({
     name,
+    sex,
+    age = 28,
+    height = 168,
+    weight = 72,
     calorieGoal,
     proteinGoal,
     dietGoal,
     targetDelta = 0,
     targetUnit = "kg",
+    dietaryStyle = "Standard / Omnivore",
     dietaryRestrictions = [],
     dislikedFoods = [],
     allergies = [],
-    sex,
   }: {
     name: string;
+    sex: "male" | "female";
+    age?: number;
+    height?: number;
+    weight?: number;
     calorieGoal: number;
     proteinGoal: number;
     dietGoal: string;
     targetDelta?: number;
     targetUnit?: string;
+    dietaryStyle?: string;
     dietaryRestrictions?: string[];
     dislikedFoods?: string[];
     allergies?: string[];
-    sex: "male" | "female";
   }) => {
     const newId = `member-${Date.now()}`;
-    const carbsGoal = Math.round((calorieGoal - proteinGoal * 4 - calorieGoal * 0.25) / 4);
     const fatGoal = Math.round((calorieGoal * 0.25) / 9);
+    const carbsGoal = Math.max(30, Math.round((calorieGoal - (proteinGoal * 4) - (fatGoal * 9)) / 4));
 
     // Normalize exclusions for planner and matching
     const normalizedDislikes = [...dislikedFoods];
     const normalizedAllergies = [...allergies];
     const normalizedPrefs = [...dietaryRestrictions];
+
+    if (dietaryStyle && dietaryStyle.toLowerCase().includes("vegetarian") && !normalizedPrefs.includes("vegetarian")) {
+      normalizedPrefs.push("vegetarian");
+    }
+    if (dietaryStyle && dietaryStyle.toLowerCase().includes("pescatarian") && !normalizedPrefs.includes("pescatarian")) {
+      normalizedPrefs.push("pescatarian");
+    }
 
     if (normalizedDislikes.some((d) => d.toLowerCase().includes("no chicken") || d.toLowerCase() === "chicken")) {
       if (!normalizedDislikes.includes("chicken")) normalizedDislikes.push("chicken");
@@ -299,20 +318,21 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
       coach_id: DEMO_COACH_ID,
       name,
       email: `${name.toLowerCase().replace(/\s+/g, ".")}@example.com`,
-      age: 26,
+      age,
       sex,
-      height: 172,
-      weight: 70,
+      height,
+      weight,
       goal: dietGoal,
       target_delta: targetDelta,
       target_unit: targetUnit,
+      dietary_style: dietaryStyle,
       activity_level: "moderate",
       dietary_preferences: normalizedPrefs,
       disliked_foods: normalizedDislikes,
       allergies: normalizedAllergies,
       medical_notes: null,
       subscription_status: "active",
-      demo_scenario: "stable",
+      demo_scenario: "onboarding",
       created_at: new Date().toISOString(),
     };
 
@@ -320,20 +340,21 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
       id: newId,
       name,
       email: newProfile.email!,
-      age: 26,
+      age,
       sex,
-      height: 172,
-      weight: 70,
+      height,
+      weight,
       goal: dietGoal,
       target_delta: targetDelta,
       target_unit: targetUnit,
+      dietary_style: dietaryStyle,
       activity_level: "moderate",
       dietary_preferences: normalizedPrefs,
       disliked_foods: normalizedDislikes,
       allergies: normalizedAllergies,
-      scenario: "stable",
-      scenarioLabel: "Custom Created Member",
-      scenarioDescription: `Personalized profile (${dietGoal}) with active exclusions: ${[...normalizedAllergies, ...normalizedDislikes].filter(Boolean).join(", ") || "None"}.`,
+      scenario: "onboarding",
+      scenarioLabel: "New Member Onboarding",
+      scenarioDescription: `Day 1 on plan (${dietGoal}) with active exclusions: ${[...normalizedAllergies, ...normalizedDislikes].filter(Boolean).join(", ") || "None"}.`,
       targets: { calories: calorieGoal, protein: proteinGoal, carbs: carbsGoal, fat: fatGoal, water: 2.5 },
     };
 

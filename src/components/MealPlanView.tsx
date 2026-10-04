@@ -135,6 +135,42 @@ export function MealPlanView() {
     const scenario = state.profiles[state.activeMemberId]?.demo_scenario;
     const name = state.profiles[state.activeMemberId]?.name?.toLowerCase() || "";
 
+    const isDemoMember = [
+      "00000000-0000-0000-0000-000000000011",
+      "00000000-0000-0000-0000-000000000012",
+      "00000000-0000-0000-0000-000000000013",
+      "00000000-0000-0000-0000-000000000014",
+      "00000000-0000-0000-0000-000000000015",
+      "00000000-0000-0000-0000-000000000016",
+    ].includes(activeProfile?.id);
+
+    const isOnboarding =
+      scenario === "onboarding" ||
+      (!isDemoMember &&
+        !name.includes("omar") &&
+        !name.includes("sara") &&
+        !name.includes("layla") &&
+        !name.includes("ahmed") &&
+        !name.includes("mariam") &&
+        !name.includes("youssef"));
+
+    if (isOnboarding) {
+      const pCals = activeTargets.protein * 4;
+      const cCals = activeTargets.carbs * 4;
+      const fCals = activeTargets.fat * 9;
+      const total = pCals + cCals + fCals || activeTargets.calories || 2000;
+      const pPct = Math.round((pCals / total) * 100);
+      const cPct = Math.round((cCals / total) * 100);
+      const fPct = Math.max(0, 100 - pPct - cPct);
+
+      return {
+        dietType: `${activeProfile.dietary_style || "Personalized"} · ${activeProfile.goal || "Adaptive"}`,
+        split: `${pPct}% P · ${cPct}% C · ${fPct}% F`,
+        calorieTarget: `${activeTargets.calories} kcal`,
+        proteinTarget: `${activeTargets.protein}g protein`,
+      };
+    }
+
     if (scenario === "stable" || name.includes("omar")) {
       return {
         dietType: "Balanced High-Protein",
