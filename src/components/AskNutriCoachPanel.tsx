@@ -932,7 +932,7 @@ export function AskNutriCoachPanel() {
 
       if (res.ok) {
         const data: AgentResponseContract = await res.json();
-        console.log("AGENT RESULT:", data);
+        console.log("[NutriCoach] CHAT RESPONSE", data);
 
         let mealPlanCard: MealPlanActionCardData | undefined;
         let alternativesCard: AlternativesCardData | undefined;
@@ -1419,6 +1419,13 @@ export function AskNutriCoachPanel() {
 
   // Apply single food action card
   const handleApplyMealPlanCard = (msgId: string, card: MealPlanActionCardData) => {
+    console.log("[NutriCoach] APPLYING MEAL", {
+      memberId: state.activeMemberId,
+      date: card.targetDate,
+      slot: card.targetSlot,
+      meal: card.foodName,
+    });
+
     replaceMealSlot({
       mealType: card.targetSlot,
       date: card.targetDate,
@@ -1432,7 +1439,7 @@ export function AskNutriCoachPanel() {
         tags: [card.targetSlot, "agent", "rebalanced"],
       },
       source: "agent",
-      rebalanceDinner: true,
+      rebalanceDinner: card.targetSlot !== "dinner",
     });
 
     setAiMessages((prev) =>

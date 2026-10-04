@@ -632,6 +632,17 @@ function runDeterministicCoach({
     };
   }
 
+  if (persona === "protein_gap" || userProfile?.name?.toLowerCase().includes("ahmed") || p.includes("protein low") || p.includes("protein gap")) {
+    return {
+      replyText: "Your calories are close to target, but protein has been below target for several days. I would focus on adding a high-protein option rather than increasing your overall calories.",
+      intent: "nutrition_question",
+      action: "suggest_meal",
+      shouldMutatePlan: false,
+      requiresConfirmation: false,
+      suggestedFollowUps: ["Suggest high-protein snack", "View protein sources"],
+    };
+  }
+
   if (p.includes("missed yesterday") || persona === "single_miss" || userProfile?.name?.toLowerCase().includes("sara")) {
     return {
       replyText: "One missed day is completely normal and will not derail your progress. There is no need to overcompensate or redesign your plan. Let us continue with today's targets.",
@@ -640,6 +651,17 @@ function runDeterministicCoach({
       shouldMutatePlan: false,
       requiresConfirmation: false,
       suggestedFollowUps: ["View today's meals", "Log lunch"],
+    };
+  }
+
+  if (persona === "stable" && (p.includes("how am i doing") || p.includes("should i change") || p.includes("progress") || userProfile?.name?.toLowerCase().includes("omar"))) {
+    return {
+      replyText: "You are doing well with the current plan and have maintained consistent tracking. I would not change anything today.",
+      intent: "progress_question",
+      action: "none",
+      shouldMutatePlan: false,
+      requiresConfirmation: false,
+      suggestedFollowUps: ["View today's meals", "Check streak"],
     };
   }
 

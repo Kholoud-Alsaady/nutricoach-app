@@ -14,7 +14,7 @@ import {
 import { useNutriCoach } from "./NutriCoachContext";
 
 export function LandingPortal() {
-  const { state, selectMemberAndEnter, addNewMember, setCurrentView } = useNutriCoach();
+  const { state, selectMemberAndEnter, addNewMember, setCurrentView, resetDemo } = useNutriCoach();
   const [showMemberSelector, setShowMemberSelector] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
 
@@ -363,10 +363,20 @@ export function LandingPortal() {
               ))}
             </div>
 
-            {/* 7th Option: + Create New Member */}
+            {/* 7th Option: + Create New Member & Reset Demo */}
             <div className="pt-2 border-t border-border flex items-center justify-between">
-              <span className="text-[11px] text-ink-muted">Or create a custom profile:</span>
               <button
+                type="button"
+                onClick={() => {
+                  resetDemo();
+                  setShowMemberSelector(false);
+                }}
+                className="text-[11px] text-ink-muted hover:text-status-danger transition-colors flex items-center gap-1"
+              >
+                <span>↻ Reset Demo Data</span>
+              </button>
+              <button
+                type="button"
                 onClick={() => {
                   setShowMemberSelector(false);
                   setShowCreateModal(true);

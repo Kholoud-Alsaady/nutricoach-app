@@ -223,7 +223,12 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
   };
 
   const resetDemo = () => {
-    if (typeof window !== "undefined") localStorage.removeItem("nutricoach_demo_state_v2");
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("nutricoach_demo_state_v5");
+      localStorage.removeItem("nutricoach_demo_state_v4");
+      localStorage.removeItem("nutricoach_demo_state_v3");
+      localStorage.removeItem("nutricoach_demo_state_v2");
+    }
     setState(createInitialDemoState());
     setCurrentView("portal");
   };
@@ -593,8 +598,22 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
     source?: "coach" | "agent" | "custom" | string;
     rebalanceDinner?: boolean;
   }) => {
+    const memberId = state.activeMemberId;
+    const currentPlannedBefore = state.plannedMeals[memberId] || [];
+    const beforeMeal = currentPlannedBefore.find((p) => p.date === date && p.meal_type === mealType);
+
+    console.log("[NutriCoach] APPLYING MEAL", {
+      memberId,
+      date,
+      slot: mealType,
+      meal: meal.meal_name,
+    });
+    console.log("[NutriCoach] LOCAL PLAN BEFORE", beforeMeal);
+
+    let updatedSlotSaved: PlannedMeal | null = null;
+    let dinnerRebalancedNoteSaved = "";
+
     setState((prev) => {
-      const memberId = prev.activeMemberId;
       const currentPlanned = [...(prev.plannedMeals[memberId] || [])];
       const idx = currentPlanned.findIndex((p) => p.date === date && p.meal_type === mealType);
 
@@ -610,10 +629,12 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
         carbs: meal.carbs,
         fat: meal.fat,
         ingredients: meal.ingredients || [],
-        tags: meal.tags || [],
-        source,
+        tags: meal.tags || [mealType, "agent"],
+        source: "agent",
         updated_at: new Date().toISOString(),
       };
+
+      updatedSlotSaved = updatedSlot;
 
       if (idx >= 0) {
         currentPlanned[idx] = updatedSlot;
@@ -656,6 +677,8 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
         }
       }
 
+      dinnerRebalancedNoteSaved = dinnerRebalancedNote;
+
       const impact = impactFor("replace_meal", prev.gym.estimated_coach_hourly_value);
       const actionTitle = date === today ? "Today" : date === addDays(today, 1) ? "Tomorrow" : date;
       const newAction: AgentAction = {
@@ -684,32 +707,6 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
         created_at: new Date().toISOString(),
       };
 
-      // Asynchronous background call to mutate-meal API for live Supabase persistence
-      if (typeof window !== "undefined") {
-        fetch("/api/mutate-meal", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            memberId,
-            targetDate: date,
-            targetSlot: mealType,
-            meal,
-            actionType: "replace_meal",
-            userRequest: `Adjust ${actionTitle}'s ${mealType} to ${meal.meal_name}`,
-            summary: `Updated ${actionTitle}'s ${mealType} to ${meal.meal_name} (${meal.calories} kcal)${dinnerRebalancedNote}`,
-            rebalanceDinner,
-            gymId: prev.gym.id,
-          }),
-        })
-          .then((res) => res.json())
-          .then((data) => {
-            console.log("SUPABASE UPDATE RESULT:", data);
-          })
-          .catch((err) => {
-            console.warn("Supabase background mutation notice:", err?.message);
-          });
-      }
-
       return {
         ...prev,
         plannedMeals: {
@@ -719,6 +716,34 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
         actions: [newAction, ...prev.actions],
       };
     });
+
+    console.log("[NutriCoach] LOCAL PLAN AFTER", updatedSlotSaved || meal);
+
+    // Asynchronous background call to mutate-meal API for live Supabase persistence (OUTSIDE setState)
+    if (typeof window !== "undefined") {
+      fetch("/api/mutate-meal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          memberId,
+          targetDate: date,
+          targetSlot: mealType,
+          meal,
+          actionType: "replace_meal",
+          userRequest: `Adjust ${date === today ? "Today" : date}'s ${mealType} to ${meal.meal_name}`,
+          summary: `Updated ${date === today ? "Today" : date}'s ${mealType} to ${meal.meal_name} (${meal.calories} kcal)${dinnerRebalancedNoteSaved}`,
+          rebalanceDinner,
+          gymId: state.gym.id,
+        }),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          console.log("[NutriCoach] SUPABASE PERSISTENCE", data);
+        })
+        .catch((err) => {
+          console.warn("[NutriCoach] SUPABASE PERSISTENCE NOTICE", err?.message);
+        });
+    }
   };
 
   const adaptDailyPlan = (reason?: string) => {
@@ -1139,28 +1164,64 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
       created_at: new Date().toISOString(),
     };
 
-    const p = text.toLowerCase();
+    // Immediately append user message to local state
+    setState((prev) => {
+      const currentMsgs = prev.messages[memberId] || [];
+      return {
+        ...prev,
+        messages: {
+          ...prev.messages,
+          [memberId]: [...currentMsgs, userMsg],
+        },
+      };
+    });
 
-    let coachReplyText = "";
-    if (p.includes("leg day") || (p.includes("protein") && p.includes("increase"))) {
-      coachReplyText = `On heavy leg days, prioritize 35-40g high-leucine protein in your post-workout meal rather than drastically spiking total daily volume. Your current daily target (${activeTargets.protein}g) already provides optimal muscle protein synthesis.`;
-    } else if (p.includes("balance lunch") || (p.includes("lunch") && p.includes("late dinner"))) {
-      coachReplyText = `Shift ~25% of your daytime carbohydrates to your evening window, and focus your lunch on lean protein and high-fiber vegetables (e.g., grilled chicken with garden greens) so you have ample calorie budget for late dinner.`;
-    } else if (p.includes("fatigued") || p.includes("snack advice") || p.includes("energy")) {
-      coachReplyText = `For post-workout fatigue, try a fast-acting carb + electrolyte combo 30-45 mins before training: 1 ripe banana with 1 tbsp peanut butter or a Greek yogurt bowl with a drizzle of honey. Ensure you're hitting your 3.0L water target today.`;
-    } else if (p.includes("travel") || p.includes("dining out") || p.includes("restaurant")) {
-      coachReplyText = `When dining out, prioritize grilled proteins (shish taouk, grilled sea bass, or lean kofta), ask for dressings on the side, and opt for steamed basmati rice or 1 loaf of baladi bread over fried sides.`;
-    } else {
-      const goalStr = activeProfile.goal ? activeProfile.goal.toLowerCase() : "fitness";
-      coachReplyText = `Got your note, ${activeProfile.name.split(" ")[0]}! I've reviewed your message and recent logs. Everything is tracking cleanly toward your ${goalStr} goal. Keep up the consistency!`;
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: text,
+          userProfile: activeProfile,
+          targets: activeTargets,
+          todayPlannedMeals: state.plannedMeals[memberId] || [],
+          todayMealLogs: state.mealLogs[memberId] || [],
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const coachReplyMsg: MemberMessage = {
+          id: `msg-coach-${Date.now()}`,
+          member_id: memberId,
+          sender: "coach",
+          text: data.replyText,
+          created_at: new Date().toISOString(),
+        };
+
+        setState((prev) => {
+          const currentMsgs = prev.messages[memberId] || [];
+          return {
+            ...prev,
+            messages: {
+              ...prev.messages,
+              [memberId]: [...currentMsgs, coachReplyMsg],
+            },
+          };
+        });
+        return;
+      }
+    } catch (e) {
+      console.warn("sendMemberMessage delegation notice:", e);
     }
 
+    // Graceful fallback if offline
     const coachReplyMsg: MemberMessage = {
       id: `msg-coach-${Date.now()}`,
       member_id: memberId,
       sender: "coach",
-      text: coachReplyText,
-      created_at: new Date(Date.now() + 500).toISOString(),
+      text: `Got your note, ${activeProfile.name.split(" ")[0]}! I've reviewed your message and recent logs. Everything is tracking cleanly toward your goals.`,
+      created_at: new Date().toISOString(),
     };
 
     setState((prev) => {
@@ -1169,15 +1230,34 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
         ...prev,
         messages: {
           ...prev.messages,
-          [memberId]: [...currentMsgs, userMsg, coachReplyMsg],
+          [memberId]: [...currentMsgs, coachReplyMsg],
         },
       };
     });
   };
 
   const askAgent = async (prompt: string): Promise<{ reply: string; actionCard?: AgentActionCard }> => {
-    await sendMemberMessage(prompt);
-    return { reply: "Message processed." };
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: prompt,
+          userProfile: activeProfile,
+          targets: activeTargets,
+          todayPlannedMeals: state.plannedMeals[state.activeMemberId] || [],
+          todayMealLogs: state.mealLogs[state.activeMemberId] || [],
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        return { reply: data.replyText };
+      }
+    } catch (e) {
+      console.warn("askAgent notice:", e);
+    }
+    return { reply: "I am having trouble processing that right now." };
   };
 
   return (
