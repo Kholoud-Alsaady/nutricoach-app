@@ -1,68 +1,95 @@
 import { NextRequest, NextResponse } from "next/server";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { prompt, memberProfile, targets, currentMeals } = body;
+    const { message, currentPlan, userProfile, targetDay = "tomorrow" } = await req.json();
 
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey || apiKey === "your_gemini_api_key_here") {
       return NextResponse.json({
-        success: false,
-        fallback: true,
-        message: "No live GEMINI_API_KEY configured. Running built-in adaptive engine.",
+        replyText: "Running on local deterministic engine (no live GEMINI_API_KEY).",
+        intent: "GENERAL_QUESTION",
       });
     }
 
     const ai = new GoogleGenAI({ apiKey });
     const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 
-    const systemInstruction = `You are NutriCoach, an adaptive AI clinical nutrition operations copilot for gym members and fitness coaches.
-Member Profile:
-- Name: ${memberProfile?.name || "Athlete"}
-- Sex: ${memberProfile?.sex || "Not specified"}
-- Age: ${memberProfile?.age || 26}
-- Height: ${memberProfile?.height || 175} cm
-- Weight: ${memberProfile?.weight || 75} kg
-- Goal: ${memberProfile?.goal || "Maintenance"}
-- Daily Calorie Target: ${targets?.calories || 2000} kcal
-- Daily Protein Target: ${targets?.protein || 140} g
-- Disliked Foods (Excluded): ${(memberProfile?.disliked_foods || []).join(", ") || "None"}
-- Allergies (Strict Exclusion): ${(memberProfile?.allergies || []).join(", ") || "None"}
+    const systemInstruction = `
+You are NutriCoach, an intelligent clinical sports nutrition agent.
+User Profile:
+- Goal: ${userProfile?.goal || "Hypertrophy & Strength"}
+- Daily Targets: ${userProfile?.calories || 2400} kcal, ${userProfile?.protein || 170}g protein
+- Excluded Foods / Dislikes: ${userProfile?.disliked_foods?.join(", ") || "None"}
+- Allergies: ${userProfile?.allergies?.join(", ") || "None"}
 
-Rules:
-1. Always respect strict allergy exclusions and member preferences.
-2. For cuisine generation (e.g. Italian, Egyptian, Mediterranean), provide high-protein, balanced meal choices matching the daily target.
-3. Keep tone concise, professional, empathetic, and encouraging.`;
+Your job:
+1. Analyze the user's message: "${message}".
+2. Detect intent:
+   - "FULL_DAY_REPLAN": User wants a specific cuisine or dietary theme for a given day (e.g., "Italian", "Egyptian", "High Protein", "Mediterranean").
+   - "REPLACE_MEAL": User wants to swap or replace one meal slot (Breakfast, Lunch, Snack, Dinner).
+   - "ADD_FOOD": User wants to add an extra snack or treat.
+   - "GENERAL_QUESTION": Questions about hydration, timing, soreness, etc.
+3. If replanning or replacing, ALWAYS respect calorie/protein targets, exclusions, and allergies.
+4. Return a structured JSON response matching the schema.
+`;
 
     const response = await ai.models.generateContent({
       model,
-      contents: prompt,
+      contents: message,
       config: {
         systemInstruction,
-        temperature: 0.2,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            replyText: { 
+              type: Type.STRING, 
+              description: "Warm, concise, professional message explaining the change." 
+            },
+            intent: { 
+              type: Type.STRING, 
+              enum: ["FULL_DAY_REPLAN", "REPLACE_MEAL", "ADD_FOOD", "GENERAL_QUESTION"] 
+            },
+            targetDay: { 
+              type: Type.STRING, 
+              description: "today, tomorrow, or day name" 
+            },
+            cuisine: {
+              type: Type.STRING,
+              description: "Cuisine name if full day replan (e.g. Italian, Egyptian, Mediterranean)",
+            },
+            updatedMeals: {
+              type: Type.ARRAY,
+              description: "The replacement meal or 4 full-day meals if replanning",
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  slot: { type: Type.STRING, enum: ["breakfast", "lunch", "snack", "dinner"] },
+                  title: { type: Type.STRING },
+                  ingredients: { type: Type.STRING },
+                  calories: { type: Type.NUMBER },
+                  protein: { type: Type.NUMBER },
+                  carbs: { type: Type.NUMBER },
+                  fat: { type: Type.NUMBER },
+                },
+                required: ["slot", "title", "ingredients", "calories", "protein", "carbs", "fat"],
+              },
+            },
+          },
+          required: ["replyText", "intent"],
+        },
       },
     });
 
-    const reply = response.text || "Analyzed with NutriCoach AI.";
-
-    return NextResponse.json({
-      success: true,
-      reply,
-      model,
-      usage: {
-        inputTokens: response.usageMetadata?.promptTokenCount || 0,
-        outputTokens: response.usageMetadata?.candidatesTokenCount || 0,
-        totalTokens: response.usageMetadata?.totalTokenCount || 0,
-      },
-    });
+    const parsed = JSON.parse(response.text || "{}");
+    return NextResponse.json(parsed);
   } catch (error: any) {
-    console.error("Gemini API Error:", error?.message || error);
-    return NextResponse.json({
-      success: false,
-      fallback: true,
-      error: error?.message || "Gemini API unavailable",
-    });
+    console.error("Gemini API error:", error);
+    return NextResponse.json(
+      { replyText: "Sorry, I could not process that request right now.", intent: "GENERAL_QUESTION", error: error?.message },
+      { status: 500 }
+    );
   }
 }
