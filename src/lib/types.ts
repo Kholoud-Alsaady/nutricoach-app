@@ -230,6 +230,7 @@ export type AgentIntent =
   | "nutrition_question"
   | "progress_question"
   | "plan_question"
+  | "research_request"
   | "safety_redirect"
   | "general_conversation"
   | "unclear";
@@ -243,6 +244,7 @@ export type AgentActionType =
   | "update_preference"
   | "adapt_day"
   | "adapt_week"
+  | "search_research"
   | "coach_followup";
 
 export interface AgentProposedMeal {
@@ -284,6 +286,15 @@ export interface AgentPendingProposal {
   summary?: string;
 }
 
+export interface AgentResearchSource {
+  title: string;
+  url: string;
+  sourceName: string;
+  sourceType: "guideline" | "article" | "study" | "report" | "fact_sheet";
+  publishedDate?: string;
+  summary: string;
+}
+
 export interface AgentResponseContract {
   replyText: string;
   intent: AgentIntent;
@@ -303,6 +314,7 @@ export interface AgentResponseContract {
   coachFollowup?: AgentCoachFollowup | null;
   updatedMeals?: AgentProposedMeal[] | null;
   confirmedProposalId?: string;
+  researchSources?: AgentResearchSource[] | null;
   error?: string;
 }
 

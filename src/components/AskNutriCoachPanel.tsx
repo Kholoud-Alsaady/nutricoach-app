@@ -1,10 +1,9 @@
 "use client";
-
 import React, { useState } from "react";
-import { ArrowUp, Check, ChevronRight, MessageSquare, Plus, RefreshCw, Sparkles, Utensils, X } from "lucide-react";
+import { ArrowUp, BookOpen, Check, ChevronRight, ExternalLink, MessageSquare, Plus, RefreshCw, Sparkles, Utensils, X } from "lucide-react";
 import { addDays, formatDay } from "@/lib/dates";
 import { useNutriCoach } from "./NutriCoachContext";
-import type { MealSnapshot, MealType, AgentResponseContract } from "@/lib/types";
+import type { MealSnapshot, MealType, AgentResponseContract, AgentResearchSource } from "@/lib/types";
 
 interface MealPlanActionCardData {
   icon: string;
@@ -107,6 +106,7 @@ interface AssistantMessage {
     targetDate: string;
     isExtraSnack?: boolean;
   };
+  researchSources?: AgentResearchSource[];
   time: string;
 }
 
@@ -1023,6 +1023,7 @@ export function AskNutriCoachPanel() {
               }
             : undefined,
           pendingConfirmation,
+          researchSources: data.researchSources && data.researchSources.length > 0 ? data.researchSources : undefined,
           time: "Just now",
         };
 
@@ -1756,6 +1757,61 @@ export function AskNutriCoachPanel() {
                       <span>View in Weekly Meal Plan</span>
                       <ChevronRight className="w-3.5 h-3.5" />
                     </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Grounded Research Sources Card */}
+              {m.researchSources && m.researchSources.length > 0 && (
+                <div className="space-y-2 mt-2">
+                  <div className="flex items-center gap-1.5 text-[11px] font-semibold text-ink-secondary">
+                    <BookOpen className="w-3.5 h-3.5 text-brand" />
+                    <span>Trusted Nutrition Sources ({m.researchSources.length})</span>
+                  </div>
+                  <div className="grid gap-2">
+                    {m.researchSources.map((source, sIdx) => (
+                      <div
+                        key={sIdx}
+                        className="bg-surface rounded-lg border border-border/80 hover:border-brand/40 p-3 space-y-1.5 shadow-hairline transition-all"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <h4 className="font-semibold text-xs text-ink-primary leading-snug line-clamp-2">
+                            {source.title}
+                          </h4>
+                          <span className="shrink-0 text-[10px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded bg-brand-tint text-brand border border-[#D5E6D2]">
+                            {source.sourceType ? source.sourceType.replace("_", " ") : "source"}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2 text-[10px] text-ink-muted">
+                          <span className="font-medium text-ink-secondary">{source.sourceName}</span>
+                          {source.publishedDate && (
+                            <>
+                              <span>•</span>
+                              <span>{source.publishedDate}</span>
+                            </>
+                          )}
+                        </div>
+
+                        {source.summary && (
+                          <p className="text-[11px] text-ink-muted leading-relaxed line-clamp-3">
+                            {source.summary}
+                          </p>
+                        )}
+
+                        <div className="pt-1 flex items-center justify-between border-t border-border/50">
+                          <a
+                            href={source.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs font-medium text-brand hover:text-brand-hover hover:underline transition-colors"
+                          >
+                            <span>Read source</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}

@@ -6,6 +6,7 @@ import type {
   AgentPendingProposal,
   AgentProposedMeal,
   AgentRemainingTargets,
+  AgentResearchSource,
   AgentResponseContract,
 } from "@/lib/types";
 import { addDays, daysBetween, todayISO } from "@/lib/dates";
@@ -214,6 +215,7 @@ const INTENTS: AgentIntent[] = [
   "nutrition_question",
   "progress_question",
   "plan_question",
+  "research_request",
   "general_conversation",
   "unclear",
 ];
@@ -227,6 +229,7 @@ const ACTIONS: AgentActionType[] = [
   "update_preference",
   "adapt_day",
   "adapt_week",
+  "search_research",
   "coach_followup",
 ];
 
@@ -371,6 +374,81 @@ function buildUpcomingPlan(planned: MealRow[], logs: MealRow[], currentDate: str
 }
 
 // -----------------------------------------------------------------------------
+// Research & web grounding helpers
+// -----------------------------------------------------------------------------
+
+function isResearchQuery(text: string): boolean {
+  const t = text.toLowerCase();
+  const patterns = [
+    /\b(article|articles|study|studies|research|paper|papers)\b/i,
+    /\b(guideline|guidelines|guidance|evidence)\b/i,
+    /\b(trusted source|trusted sources|reliable source|reliable sources|source|sources)\b/i,
+    /\b(read more about|scientific|literature|clinical trial|clinical trials)\b/i,
+    /\b(fao|who|nih|cdc|pubmed|peer-reviewed)\b/i,
+    /\bwhat does (who|fao|nih|cdc)\b/i,
+  ];
+  return patterns.some((p) => p.test(t));
+}
+
+function inferSourceName(url: string, title?: string): string {
+  const lowerUrl = url.toLowerCase();
+  const lowerTitle = (title || "").toLowerCase();
+  if (lowerUrl.includes("who.int") || lowerTitle.includes("world health organization") || lowerTitle.includes("who")) {
+    return "World Health Organization (WHO)";
+  }
+  if (lowerUrl.includes("fao.org") || lowerTitle.includes("food and agriculture organization") || lowerTitle.includes("fao")) {
+    return "Food and Agriculture Organization (FAO)";
+  }
+  if (lowerUrl.includes("ncbi.nlm.nih.gov") || lowerUrl.includes("pubmed") || lowerTitle.includes("pubmed")) {
+    return "PubMed / National Institutes of Health";
+  }
+  if (lowerUrl.includes("nih.gov") || lowerTitle.includes("nih")) {
+    return "National Institutes of Health (NIH)";
+  }
+  if (lowerUrl.includes("cdc.gov") || lowerTitle.includes("cdc")) {
+    return "Centers for Disease Control and Prevention (CDC)";
+  }
+  if (lowerUrl.includes("efsa.europa.eu")) {
+    return "European Food Safety Authority (EFSA)";
+  }
+  if (lowerUrl.includes("harvard.edu")) {
+    return "Harvard T.H. Chan School of Public Health";
+  }
+  if (lowerUrl.includes("sciencedirect.com") || lowerUrl.includes("nature.com") || lowerUrl.includes("thelancet.com") || lowerUrl.includes("bmj.com")) {
+    return "Peer-Reviewed Medical Journal";
+  }
+  try {
+    const hostname = new URL(url).hostname.replace(/^www\./, "");
+    return hostname.charAt(0).toUpperCase() + hostname.slice(1);
+  } catch {
+    return "Authoritative Nutrition Source";
+  }
+}
+
+function inferSourceType(url: string, title?: string): "guideline" | "article" | "study" | "report" | "fact_sheet" {
+  const combined = `${url} ${title || ""}`.toLowerCase();
+  if (combined.includes("fact-sheet") || combined.includes("factsheet") || combined.includes("fact sheet")) return "fact_sheet";
+  if (combined.includes("guideline") || combined.includes("guidance") || combined.includes("recommendation") || combined.includes("standard")) return "guideline";
+  if (combined.includes("study") || combined.includes("trial") || combined.includes("pubmed") || combined.includes("pmc") || combined.includes("doi.org")) return "study";
+  if (combined.includes("report") || combined.includes("technical paper")) return "report";
+  return "article";
+}
+
+function inferTitleFromUrl(url: string): string {
+  try {
+    const pathname = new URL(url).pathname;
+    const last = pathname.split("/").filter(Boolean).pop() || "";
+    const clean = last.replace(/[-_]/g, " ").replace(/\.(html|php|asp|pdf)$/i, "");
+    if (clean.length > 3) {
+      return clean.charAt(0).toUpperCase() + clean.slice(1);
+    }
+  } catch {
+    // fallback
+  }
+  return "Nutrition Guidelines & Research";
+}
+
+// -----------------------------------------------------------------------------
 // Gemini prompt & schema
 // -----------------------------------------------------------------------------
 
@@ -383,7 +461,49 @@ Your job is to understand the member's natural-language request, inspect the sup
 Never assume that a request must match a predefined example.
 Never use the member's name or any persona label to decide what to say. Infer behavior from the actual data supplied (plan, logs, adherence history, conversation).
 
-You can handle arbitrary requests involving: meal replacement, meal additions, meal logging, meal adaptation, day-level meal-plan adaptation, week-level planning, cuisine preferences, food preferences, nutrition questions, progress questions, and meal-plan questions.
+You can handle arbitrary requests involving: meal replacement, meal additions, meal logging, meal adaptation, day-level meal-plan adaptation, week-level planning, cuisine preferences, food preferences, nutrition questions, progress questions, research requests, and meal-plan questions.
+
+RESEARCH AND INFORMATION RETRIEVAL:
+You can handle research requests.
+
+When the user asks for:
+- an article
+- a study
+- research
+- a guideline
+- evidence
+- a trusted source
+- official nutrition guidance
+- information from FAO, WHO, NIH, CDC, PubMed, or another named authority
+
+classify the request as:
+intent = research_request
+action = search_research
+
+Use web search grounding when available.
+
+For nutrition research, prioritize authoritative sources.
+Preferred sources include:
+FAO, WHO, NIH, CDC, official government health agencies, PubMed, peer-reviewed journals, universities, and established research institutions.
+
+If the user explicitly names a source such as FAO or WHO, prioritize that source.
+
+Do not invent articles, URLs, publication dates, or claims.
+Only return source links obtained from the search results.
+
+Return 2–4 high-quality sources rather than a large list.
+
+Each source in researchSources should contain:
+- title
+- url
+- sourceName
+- sourceType ("guideline", "article", "study", "report", "fact_sheet")
+- publishedDate (when available)
+- summary (short, informative summary)
+
+Research requests never modify the member's meal plan (shouldMutatePlan=false, requiresConfirmation=false).
+
+If the user later explicitly asks to apply information from the research to their meal plan, treat that as a new meal-plan request.
 
 Interpretation rules:
 - When the user specifies a day, preserve that day. Resolve relative days ("today", "tonight", "tomorrow", weekday names) using CURRENT DATE below and return the ISO date in targetDate.
@@ -432,6 +552,22 @@ const mealSchema = {
   required: ["title", "calories", "protein", "carbs", "fat"],
 };
 
+const researchSourceSchema = {
+  type: Type.OBJECT,
+  properties: {
+    title: { type: Type.STRING },
+    url: { type: Type.STRING },
+    sourceName: { type: Type.STRING },
+    sourceType: {
+      type: Type.STRING,
+      enum: ["guideline", "article", "study", "report", "fact_sheet"],
+    },
+    publishedDate: { type: Type.STRING, nullable: true },
+    summary: { type: Type.STRING },
+  },
+  required: ["title", "url", "sourceName", "sourceType", "summary"],
+};
+
 const RESPONSE_SCHEMA = {
   type: Type.OBJECT,
   properties: {
@@ -465,6 +601,11 @@ const RESPONSE_SCHEMA = {
         recommendedAction: { type: Type.STRING },
       },
       required: ["reason", "priority", "recommendedAction"],
+    },
+    researchSources: {
+      type: Type.ARRAY,
+      items: researchSourceSchema,
+      nullable: true,
     },
   },
   required: ["replyText", "intent", "action", "shouldMutatePlan", "requiresConfirmation"],
@@ -582,10 +723,63 @@ ${history.length ? history.map((h) => `${h.sender}: ${h.text}`).join("\n") : "(n
   const ai = new GoogleGenAI({ apiKey });
   const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 
+  const isResearch = isResearchQuery(message);
+  let capturedGroundingMeta: any = null;
+
   const callModel = async (correction?: string): Promise<any | null> => {
+    let contents = correction
+      ? `${message}\n\n[Application feedback on your previous proposal: ${correction}]`
+      : message;
+
+    if (isResearch) {
+      if (/\bfao\b/i.test(message)) {
+        contents += "\n\n[Research note: The user explicitly requested FAO guidance. Prioritize results and evidence from fao.org.]";
+      } else if (/\bwho\b/i.test(message)) {
+        contents += "\n\n[Research note: The user explicitly requested WHO guidance. Prioritize results and evidence from who.int.]";
+      } else if (/\b(study|studies|trial|trials|paper|pubmed)\b/i.test(message)) {
+        contents += "\n\n[Research note: The user requested an academic study or scientific paper. Prioritize PubMed and peer-reviewed journal sources.]";
+      }
+
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents,
+          config: {
+            systemInstruction: `${SYSTEM_PROMPT}\n\n${context}`,
+            responseMimeType: "application/json",
+            responseSchema: RESPONSE_SCHEMA,
+            tools: [{ googleSearch: {} }],
+            temperature: 0.2,
+          },
+        });
+        capturedGroundingMeta = response.candidates?.[0]?.groundingMetadata;
+        return JSON.parse(response.text || "");
+      } catch (err: any) {
+        console.warn("[NutriCoach] Google Search Grounding with schema encountered error, attempting fallback without schema:", err?.message || err);
+        try {
+          const response = await ai.models.generateContent({
+            model,
+            contents: `${contents}\n\nReturn a valid JSON object matching: {"replyText": string, "intent": "research_request", "action": "search_research", "shouldMutatePlan": false, "requiresConfirmation": false, "researchSources": [{"title": string, "url": string, "sourceName": string, "sourceType": "guideline"|"article"|"study"|"report"|"fact_sheet", "summary": string}]}`,
+            config: {
+              systemInstruction: `${SYSTEM_PROMPT}\n\n${context}`,
+              tools: [{ googleSearch: {} }],
+              temperature: 0.2,
+            },
+          });
+          capturedGroundingMeta = response.candidates?.[0]?.groundingMetadata;
+          const text = response.text || "";
+          const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/) || [null, text];
+          return JSON.parse(jsonMatch[1]);
+        } catch (fallbackErr: any) {
+          console.error("[NutriCoach] Google Search Grounding fallback failed:", fallbackErr?.message || fallbackErr);
+          return null;
+        }
+      }
+    }
+
     const response = await ai.models.generateContent({
       model,
-      contents: correction ? `${message}\n\n[Application feedback on your previous proposal: ${correction}]` : message,
+      contents,
       config: {
         systemInstruction: `${SYSTEM_PROMPT}\n\n${context}`,
         responseMimeType: "application/json",
@@ -658,15 +852,98 @@ ${history.length ? history.map((h) => `${h.sender}: ${h.text}`).join("\n") : "(n
           : null,
     };
 
+    // If research request: enforce plan protection and build authentic research citations
+    if (result.intent === "research_request" || result.action === "search_research" || isResearch) {
+      result.intent = "research_request";
+      result.action = "search_research";
+      result.shouldMutatePlan = false;
+      result.requiresConfirmation = false;
+      result.proposedMeal = undefined;
+      result.proposedMeals = undefined;
+      result.targetSlot = undefined;
+      result.targetDate = undefined;
+
+      const realChunks: Array<{ uri: string; title: string }> = [];
+      const seenUris = new Set<string>();
+
+      if (Array.isArray(capturedGroundingMeta?.groundingChunks)) {
+        for (const chunk of capturedGroundingMeta.groundingChunks) {
+          const uri = chunk.web?.uri;
+          const title = chunk.web?.title || "";
+          if (uri && typeof uri === "string" && uri.startsWith("http") && !seenUris.has(uri.toLowerCase())) {
+            seenUris.add(uri.toLowerCase());
+            realChunks.push({ uri, title });
+          }
+        }
+      }
+
+      const builtSources: AgentResearchSource[] = [];
+      const modelSources = Array.isArray(raw.researchSources) ? raw.researchSources : [];
+
+      for (const ms of modelSources) {
+        if (!ms || typeof ms !== "object") continue;
+        const match = realChunks.find(
+          (c) =>
+            c.uri.toLowerCase() === (ms.url || "").toLowerCase() ||
+            (ms.url && c.uri.toLowerCase().includes(new URL(ms.url).hostname))
+        );
+        const validUrl = match ? match.uri : (realChunks[builtSources.length]?.uri || (ms.url?.startsWith("http") ? ms.url : null));
+        if (!validUrl) continue;
+
+        const sourceName = ms.sourceName || inferSourceName(validUrl, ms.title);
+        const sourceType = ["guideline", "article", "study", "report", "fact_sheet"].includes(ms.sourceType)
+          ? ms.sourceType
+          : inferSourceType(validUrl, ms.title);
+
+        builtSources.push({
+          title: ms.title || match?.title || inferTitleFromUrl(validUrl),
+          url: validUrl,
+          sourceName,
+          sourceType,
+          publishedDate: typeof ms.publishedDate === "string" ? ms.publishedDate : undefined,
+          summary: ms.summary || "Authoritative evidence-based nutrition resource.",
+        });
+
+        if (builtSources.length >= 4) break;
+      }
+
+      for (const chunk of realChunks) {
+        if (builtSources.length >= 4) break;
+        if (builtSources.some((s) => s.url.toLowerCase() === chunk.uri.toLowerCase())) continue;
+
+        const sourceName = inferSourceName(chunk.uri, chunk.title);
+        const sourceType = inferSourceType(chunk.uri, chunk.title);
+
+        builtSources.push({
+          title: chunk.title || inferTitleFromUrl(chunk.uri),
+          url: chunk.uri,
+          sourceName,
+          sourceType,
+          summary: `Official guidance and evidence from ${sourceName}.`,
+        });
+      }
+
+      if (builtSources.length > 0) {
+        result.researchSources = builtSources.slice(0, 4);
+      }
+
+      if (!result.suggestedFollowUps?.length) {
+        result.suggestedFollowUps = [
+          "Apply this to tomorrow's plan",
+          "Ask another nutrition question",
+        ];
+      }
+    }
+
     const targetDate = resolveTargetDate(raw.targetDay, raw.targetDate, currentDate);
-    if (targetDate) result.targetDate = targetDate;
+    if (targetDate && result.action !== "search_research") result.targetDate = targetDate;
 
     const single = normalizeMeal(raw.proposedMeal, result.targetSlot);
     const multi = Array.isArray(raw.proposedMeals)
       ? (raw.proposedMeals.map((m: any) => normalizeMeal(m)).filter((m: AgentProposedMeal | null) => m && m.slot) as AgentProposedMeal[])
       : [];
-    if (single) result.proposedMeal = single;
-    if (multi.length) result.proposedMeals = multi;
+    if (single && result.action !== "search_research") result.proposedMeal = single;
+    if (multi.length && result.action !== "search_research") result.proposedMeals = multi;
 
     if (
       raw.preferenceUpdate &&
