@@ -386,8 +386,42 @@ function isResearchQuery(text: string): boolean {
     /\b(read more about|scientific|literature|clinical trial|clinical trials)\b/i,
     /\b(fao|who|nih|cdc|pubmed|peer-reviewed)\b/i,
     /\bwhat does (who|fao|nih|cdc)\b/i,
+    /\bsuggest (me )?(an )?article\b/i,
+    /\b(article|study|guideline|research|paper) (about|on|for)\b/i,
   ];
   return patterns.some((p) => p.test(t));
+}
+
+function isTrustedResearchSource(url: string): boolean {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+    return (
+      hostname.endsWith("fao.org") ||
+      hostname.endsWith("who.int") ||
+      hostname.endsWith("nih.gov") ||
+      hostname.endsWith("cdc.gov") ||
+      hostname.endsWith("ncbi.nlm.nih.gov") ||
+      hostname.endsWith(".gov") ||
+      hostname.endsWith(".edu") ||
+      hostname.endsWith("efsa.europa.eu") ||
+      hostname.endsWith("cochranelibrary.com") ||
+      hostname.endsWith("sciencedirect.com") ||
+      hostname.endsWith("nature.com") ||
+      hostname.endsWith("thelancet.com") ||
+      hostname.endsWith("bmj.com") ||
+      hostname.endsWith("jamanetwork.com") ||
+      hostname.endsWith("nutrition.org") ||
+      hostname.endsWith("eatright.org") ||
+      hostname.endsWith("cambridge.org") ||
+      hostname.endsWith("oxfordacademic.com") ||
+      hostname.endsWith("oup.com") ||
+      hostname.endsWith("springer.com") ||
+      hostname.endsWith("frontiersin.org") ||
+      hostname.endsWith("mdpi.com")
+    );
+  } catch {
+    return false;
+  }
 }
 
 function inferSourceName(url: string, title?: string): string {
@@ -446,6 +480,165 @@ function inferTitleFromUrl(url: string): string {
     // fallback
   }
   return "Nutrition Guidelines & Research";
+}
+
+async function handleResearchRequest(
+  message: string,
+  ai: GoogleGenAI,
+  model: string
+): Promise<NextResponse> {
+  console.log("[NutriCoach] Research request:", message);
+
+  const lower = message.toLowerCase();
+  const wantsFao = /\bfao\b/i.test(message) || lower.includes("food and agriculture");
+  const wantsWho = /\bwho\b/i.test(message) || lower.includes("world health organization");
+  const wantsStudy = /\b(study|studies|trial|trials|paper|papers|pubmed|peer-reviewed)\b/i.test(message);
+
+  let searchPrompt = message;
+  if (wantsFao) {
+    searchPrompt += "\n[Search focus: official FAO publications, guidelines and articles from fao.org]";
+  } else if (wantsWho) {
+    searchPrompt += "\n[Search focus: official WHO guidance, guidelines and fact sheets from who.int]";
+  } else if (wantsStudy) {
+    searchPrompt += "\n[Search focus: peer-reviewed research papers and PubMed/NIH scientific studies]";
+  } else if (lower.includes("sugar")) {
+    searchPrompt += "\n[Search focus: official WHO and FAO guidance on free sugars, healthy diets, and sugar reduction]";
+  }
+
+  const RESEARCH_SYSTEM_INSTRUCTION = `You are NutriCoach's nutrition research assistant.
+
+The user is asking for nutrition information, articles, studies, guidelines, or trusted sources.
+
+Use Google Search grounding to find current, verifiable sources.
+
+Prioritize authoritative nutrition sources.
+
+Preferred sources:
+1. FAO (fao.org)
+2. WHO (who.int)
+3. NIH (nih.gov, ncbi.nlm.nih.gov)
+4. CDC (cdc.gov)
+5. PubMed / peer-reviewed journals
+6. Official government health agencies
+7. Universities and established research institutions
+
+If the user explicitly requests FAO, prioritize fao.org.
+If the user explicitly requests WHO, prioritize who.int.
+If the user explicitly requests a study or paper, prioritize PubMed and peer-reviewed sources.
+
+Do not invent:
+- article titles
+- URLs
+- publication dates
+- study findings
+- organizations
+
+Only mention information supported by the retrieved sources.
+
+For a general article request, return 2–4 strong sources.
+
+Give a short, useful explanation of what each source is about.
+
+Do not modify the user's meal plan.
+Do not create meal proposals.
+Do not calculate or change nutrition targets unless the user separately asks for that.
+
+Keep the response concise and useful.`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model,
+      contents: searchPrompt,
+      config: {
+        systemInstruction: RESEARCH_SYSTEM_INSTRUCTION,
+        tools: [{ googleSearch: {} }],
+        temperature: 0.2,
+      },
+    });
+
+    const answer = (response.text || "").trim();
+    const groundingMetadata = response.candidates?.[0]?.groundingMetadata;
+
+    console.log("[NutriCoach] Grounding queries:", groundingMetadata?.webSearchQueries);
+
+    const rawChunks = groundingMetadata?.groundingChunks || [];
+    const seenUris = new Set<string>();
+    const extractedChunks: Array<{ uri: string; title: string }> = [];
+
+    for (const chunk of rawChunks) {
+      const uri = chunk.web?.uri;
+      const title = (chunk.web?.title || "").trim();
+      if (uri && typeof uri === "string" && uri.startsWith("http") && !seenUris.has(uri.toLowerCase())) {
+        seenUris.add(uri.toLowerCase());
+        extractedChunks.push({ uri, title });
+      }
+    }
+
+    // Score by authority and user preference
+    const scoredChunks = extractedChunks.map((c) => {
+      let score = 0;
+      const u = c.uri.toLowerCase();
+      if (wantsFao && u.includes("fao.org")) score += 200;
+      if (wantsWho && u.includes("who.int")) score += 200;
+      if (wantsStudy && (u.includes("pubmed") || u.includes("ncbi") || u.includes("nih.gov"))) score += 200;
+
+      if (u.includes("who.int")) score += 100;
+      else if (u.includes("fao.org")) score += 100;
+      else if (u.includes("nih.gov") || u.includes("cdc.gov") || u.includes("ncbi.nlm.nih.gov")) score += 80;
+      else if (isTrustedResearchSource(c.uri)) score += 50;
+      else score += 10;
+
+      return { ...c, score };
+    });
+
+    scoredChunks.sort((a, b) => b.score - a.score);
+
+    const trustedOnly = scoredChunks.filter((c) => isTrustedResearchSource(c.uri));
+    const selectedChunks = (trustedOnly.length >= 2 ? trustedOnly : scoredChunks).slice(0, 4);
+
+    const researchSources: AgentResearchSource[] = selectedChunks.map((c) => {
+      const sourceName = inferSourceName(c.uri, c.title);
+      const sourceType = inferSourceType(c.uri, c.title);
+      return {
+        title: c.title || inferTitleFromUrl(c.uri),
+        url: c.uri,
+        sourceName,
+        sourceType,
+        summary: `Evidence-based nutrition guidance and research from ${sourceName}.`,
+      };
+    });
+
+    console.log("[NutriCoach] Grounding sources:", researchSources);
+
+    const cleanReplyText = answer || "I found reliable sources on that topic. You can review the details below.";
+
+    const contract: AgentResponseContract = {
+      replyText: cleanReplyText,
+      intent: "research_request",
+      action: "search_research",
+      shouldMutatePlan: false,
+      requiresConfirmation: false,
+      researchSources,
+      suggestedFollowUps: [
+        "Apply this to tomorrow's plan",
+        "Ask another nutrition question",
+      ],
+    };
+
+    return NextResponse.json(contract);
+  } catch (error: any) {
+    console.error("[NutriCoach] Research grounding failed:", error);
+    return NextResponse.json(
+      {
+        ...AGENT_UNAVAILABLE,
+        replyText: "I couldn't fetch live research sources right now. Please check your connection or try again in a moment.",
+        intent: "research_request",
+        action: "search_research",
+        error: error?.message || "Research grounding failed",
+      },
+      { status: 502 }
+    );
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -638,7 +831,22 @@ export async function POST(req: NextRequest) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey === "your_gemini_api_key_here") {
     console.error("[NutriCoach] /api/chat: GEMINI_API_KEY is not configured.");
-    return NextResponse.json(AGENT_UNAVAILABLE, { status: 503 });
+    return NextResponse.json(
+      {
+        ...AGENT_UNAVAILABLE,
+        replyText: "NutriCoach AI is currently not configured with an API key. Please check your setup.",
+        error: "GEMINI_API_KEY not configured",
+      },
+      { status: 503 }
+    );
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+
+  // Dedicated first-class research request path
+  if (isResearchQuery(message)) {
+    return await handleResearchRequest(message, ai, model);
   }
 
   // STEP 2: Normalise the application state supplied by the client
@@ -720,66 +928,10 @@ RECENT CONVERSATION:
 ${history.length ? history.map((h) => `${h.sender}: ${h.text}`).join("\n") : "(no previous messages)"}`;
 
   // STEP 3: Call Gemini (with one corrective retry if a day-level proposal is badly unbalanced)
-  const ai = new GoogleGenAI({ apiKey });
-  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-
-  const isResearch = isResearchQuery(message);
-  let capturedGroundingMeta: any = null;
-
   const callModel = async (correction?: string): Promise<any | null> => {
-    let contents = correction
-      ? `${message}\n\n[Application feedback on your previous proposal: ${correction}]`
-      : message;
-
-    if (isResearch) {
-      if (/\bfao\b/i.test(message)) {
-        contents += "\n\n[Research note: The user explicitly requested FAO guidance. Prioritize results and evidence from fao.org.]";
-      } else if (/\bwho\b/i.test(message)) {
-        contents += "\n\n[Research note: The user explicitly requested WHO guidance. Prioritize results and evidence from who.int.]";
-      } else if (/\b(study|studies|trial|trials|paper|pubmed)\b/i.test(message)) {
-        contents += "\n\n[Research note: The user requested an academic study or scientific paper. Prioritize PubMed and peer-reviewed journal sources.]";
-      }
-
-      try {
-        const response = await ai.models.generateContent({
-          model,
-          contents,
-          config: {
-            systemInstruction: `${SYSTEM_PROMPT}\n\n${context}`,
-            responseMimeType: "application/json",
-            responseSchema: RESPONSE_SCHEMA,
-            tools: [{ googleSearch: {} }],
-            temperature: 0.2,
-          },
-        });
-        capturedGroundingMeta = response.candidates?.[0]?.groundingMetadata;
-        return JSON.parse(response.text || "");
-      } catch (err: any) {
-        console.warn("[NutriCoach] Google Search Grounding with schema encountered error, attempting fallback without schema:", err?.message || err);
-        try {
-          const response = await ai.models.generateContent({
-            model,
-            contents: `${contents}\n\nReturn a valid JSON object matching: {"replyText": string, "intent": "research_request", "action": "search_research", "shouldMutatePlan": false, "requiresConfirmation": false, "researchSources": [{"title": string, "url": string, "sourceName": string, "sourceType": "guideline"|"article"|"study"|"report"|"fact_sheet", "summary": string}]}`,
-            config: {
-              systemInstruction: `${SYSTEM_PROMPT}\n\n${context}`,
-              tools: [{ googleSearch: {} }],
-              temperature: 0.2,
-            },
-          });
-          capturedGroundingMeta = response.candidates?.[0]?.groundingMetadata;
-          const text = response.text || "";
-          const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/) || [null, text];
-          return JSON.parse(jsonMatch[1]);
-        } catch (fallbackErr: any) {
-          console.error("[NutriCoach] Google Search Grounding fallback failed:", fallbackErr?.message || fallbackErr);
-          return null;
-        }
-      }
-    }
-
     const response = await ai.models.generateContent({
       model,
-      contents,
+      contents: correction ? `${message}\n\n[Application feedback on your previous proposal: ${correction}]` : message,
       config: {
         systemInstruction: `${SYSTEM_PROMPT}\n\n${context}`,
         responseMimeType: "application/json",
@@ -852,98 +1004,15 @@ ${history.length ? history.map((h) => `${h.sender}: ${h.text}`).join("\n") : "(n
           : null,
     };
 
-    // If research request: enforce plan protection and build authentic research citations
-    if (result.intent === "research_request" || result.action === "search_research" || isResearch) {
-      result.intent = "research_request";
-      result.action = "search_research";
-      result.shouldMutatePlan = false;
-      result.requiresConfirmation = false;
-      result.proposedMeal = undefined;
-      result.proposedMeals = undefined;
-      result.targetSlot = undefined;
-      result.targetDate = undefined;
-
-      const realChunks: Array<{ uri: string; title: string }> = [];
-      const seenUris = new Set<string>();
-
-      if (Array.isArray(capturedGroundingMeta?.groundingChunks)) {
-        for (const chunk of capturedGroundingMeta.groundingChunks) {
-          const uri = chunk.web?.uri;
-          const title = chunk.web?.title || "";
-          if (uri && typeof uri === "string" && uri.startsWith("http") && !seenUris.has(uri.toLowerCase())) {
-            seenUris.add(uri.toLowerCase());
-            realChunks.push({ uri, title });
-          }
-        }
-      }
-
-      const builtSources: AgentResearchSource[] = [];
-      const modelSources = Array.isArray(raw.researchSources) ? raw.researchSources : [];
-
-      for (const ms of modelSources) {
-        if (!ms || typeof ms !== "object") continue;
-        const match = realChunks.find(
-          (c) =>
-            c.uri.toLowerCase() === (ms.url || "").toLowerCase() ||
-            (ms.url && c.uri.toLowerCase().includes(new URL(ms.url).hostname))
-        );
-        const validUrl = match ? match.uri : (realChunks[builtSources.length]?.uri || (ms.url?.startsWith("http") ? ms.url : null));
-        if (!validUrl) continue;
-
-        const sourceName = ms.sourceName || inferSourceName(validUrl, ms.title);
-        const sourceType = ["guideline", "article", "study", "report", "fact_sheet"].includes(ms.sourceType)
-          ? ms.sourceType
-          : inferSourceType(validUrl, ms.title);
-
-        builtSources.push({
-          title: ms.title || match?.title || inferTitleFromUrl(validUrl),
-          url: validUrl,
-          sourceName,
-          sourceType,
-          publishedDate: typeof ms.publishedDate === "string" ? ms.publishedDate : undefined,
-          summary: ms.summary || "Authoritative evidence-based nutrition resource.",
-        });
-
-        if (builtSources.length >= 4) break;
-      }
-
-      for (const chunk of realChunks) {
-        if (builtSources.length >= 4) break;
-        if (builtSources.some((s) => s.url.toLowerCase() === chunk.uri.toLowerCase())) continue;
-
-        const sourceName = inferSourceName(chunk.uri, chunk.title);
-        const sourceType = inferSourceType(chunk.uri, chunk.title);
-
-        builtSources.push({
-          title: chunk.title || inferTitleFromUrl(chunk.uri),
-          url: chunk.uri,
-          sourceName,
-          sourceType,
-          summary: `Official guidance and evidence from ${sourceName}.`,
-        });
-      }
-
-      if (builtSources.length > 0) {
-        result.researchSources = builtSources.slice(0, 4);
-      }
-
-      if (!result.suggestedFollowUps?.length) {
-        result.suggestedFollowUps = [
-          "Apply this to tomorrow's plan",
-          "Ask another nutrition question",
-        ];
-      }
-    }
-
     const targetDate = resolveTargetDate(raw.targetDay, raw.targetDate, currentDate);
-    if (targetDate && result.action !== "search_research") result.targetDate = targetDate;
+    if (targetDate) result.targetDate = targetDate;
 
     const single = normalizeMeal(raw.proposedMeal, result.targetSlot);
     const multi = Array.isArray(raw.proposedMeals)
       ? (raw.proposedMeals.map((m: any) => normalizeMeal(m)).filter((m: AgentProposedMeal | null) => m && m.slot) as AgentProposedMeal[])
       : [];
-    if (single && result.action !== "search_research") result.proposedMeal = single;
-    if (multi.length && result.action !== "search_research") result.proposedMeals = multi;
+    if (single) result.proposedMeal = single;
+    if (multi.length) result.proposedMeals = multi;
 
     if (
       raw.preferenceUpdate &&
