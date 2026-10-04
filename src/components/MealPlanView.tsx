@@ -403,8 +403,19 @@ export function MealPlanView() {
           {(["breakfast", "lunch", "snack", "dinner"] as MealType[]).map((slotType) => {
             const meal = selectedMeals.find((m) => m.meal_type === slotType);
             const slotTitle = slotType.charAt(0).toUpperCase() + slotType.slice(1);
-            const isAiAdapted = meal?.source === "agent";
+            const isAiAdapted = meal?.source === "agent" || meal?.source?.startsWith("agent");
             const isCustom = meal?.source === "custom";
+
+            const getBadgeLabel = () => {
+              if (!meal?.source) return null;
+              if (meal.source.startsWith("agent:")) {
+                const cuisine = meal.source.slice(6);
+                return `AI Adapted — ${cuisine}`;
+              }
+              if (meal.source === "agent") return "AI Adapted";
+              if (meal.source === "custom") return "Custom";
+              return null;
+            };
 
             return (
               <div key={slotType} className="py-3 first:pt-0 last:pb-0 flex items-start justify-between text-xs">
@@ -417,7 +428,7 @@ export function MealPlanView() {
                     {isAiAdapted && (
                       <span className="text-[10px] px-2 py-0.5 bg-brand-tint text-brand rounded font-medium border border-[#D5E6D2] flex items-center gap-1">
                         <Sparkles className="w-2.5 h-2.5" />
-                        AI Adapted
+                        {getBadgeLabel()}
                       </span>
                     )}
                     {isCustom && (

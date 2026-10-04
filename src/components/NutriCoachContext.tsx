@@ -99,7 +99,7 @@ interface NutriCoachContextType {
   logCustomMeal: (params: { mealType: MealType; mealName: string; calories: number; protein: number; carbs: number; fat: number; notes?: string }) => void;
   deleteLog: (logId: string) => void;
   replaceMeal: (params: { mealType: MealType; avoid?: string[]; reason?: string }) => void;
-  replaceMealSlot: (params: { mealType: MealType; date?: string; meal: MealSnapshot; source?: "coach" | "agent" | "custom"; rebalanceDinner?: boolean }) => void;
+  replaceMealSlot: (params: { mealType: MealType; date?: string; meal: MealSnapshot; source?: "coach" | "agent" | "custom" | string; rebalanceDinner?: boolean }) => void;
   addExtraMeal: (params: { mealType: string; mealName: string; calories: number; protein: number; carbs: number; fat: number; asLogged?: boolean; date?: string }) => void;
   confirmAddMeal: (params: { mealName: string; calories: number; protein: number; carbs: number; fat: number; mealType: string; targetDate: string; asLogged?: boolean }) => void;
   sendMemberMessage: (text: string) => Promise<void>;
@@ -590,7 +590,7 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
     mealType: MealType;
     date?: string;
     meal: MealSnapshot;
-    source?: "coach" | "agent" | "custom";
+    source?: "coach" | "agent" | "custom" | string;
     rebalanceDinner?: boolean;
   }) => {
     setState((prev) => {

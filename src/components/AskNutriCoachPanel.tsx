@@ -51,6 +51,35 @@ interface ExclusionPromptData {
   safeAlternativeDesc: string;
 }
 
+interface CuisineMealTemplate {
+  slot: MealType;
+  name: string;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  ingredients: string[];
+  tags: string[];
+}
+
+interface CuisineTemplate {
+  id: string;
+  name: string;
+  keywords: string[];
+  summary: string;
+  meals: CuisineMealTemplate[];
+}
+
+interface CuisineCardData {
+  cuisineName: string;
+  dayLabel: string;
+  dayOffset: number;
+  targetDate: string;
+  totalCalories: number;
+  totalProtein: number;
+  meals: { slot: string; name: string; calories: number; protein: number }[];
+}
+
 interface AssistantMessage {
   id: string;
   sender: "user" | "agent";
@@ -59,6 +88,7 @@ interface AssistantMessage {
   alternativesCard?: AlternativesCardData;
   dayClarification?: DayClarificationData;
   exclusionPrompt?: ExclusionPromptData;
+  cuisineCard?: CuisineCardData;
   pendingConfirmation?: {
     mealName: string;
     calories: number;
@@ -274,6 +304,153 @@ const KNOWN_FOODS: KnownFood[] = [
     defaultSlot: "lunch",
     ingredients: ["solid tuna in water", "cucumbers", "tomatoes", "olives", "feta", "olive oil"],
     tags: ["lunch", "salad", "keto-friendly"],
+  },
+];
+
+const CUISINE_TEMPLATES: CuisineTemplate[] = [
+  {
+    id: "italian",
+    name: "Italian",
+    keywords: ["italian", "italy", "piccata", "spigola", "ricotta", "frittata"],
+    summary: "Spinach frittata, Chicken piccata with whole wheat penne, Ricotta snack, and Herb-crusted sea bass",
+    meals: [
+      {
+        slot: "breakfast",
+        name: "Frittata with spinach, cherry tomatoes & whole grain sourdough",
+        calories: 420,
+        protein: 28,
+        carbs: 32,
+        fat: 18,
+        ingredients: ["eggs", "spinach", "cherry tomatoes", "whole grain sourdough", "olive oil"],
+        tags: ["italian", "breakfast", "high-protein"],
+      },
+      {
+        slot: "lunch",
+        name: "Grilled chicken piccata with whole wheat penne & arugula salad",
+        calories: 540,
+        protein: 46,
+        carbs: 52,
+        fat: 14,
+        ingredients: ["chicken breast", "whole wheat penne", "lemon caper sauce", "arugula", "parmesan"],
+        tags: ["italian", "lunch", "high-protein"],
+      },
+      {
+        slot: "snack",
+        name: "Low-fat ricotta with fresh figs or sliced pear & walnuts",
+        calories: 220,
+        protein: 14,
+        carbs: 20,
+        fat: 10,
+        ingredients: ["low-fat ricotta", "fresh figs", "walnuts", "honey drizzle"],
+        tags: ["italian", "snack", "dairy"],
+      },
+      {
+        slot: "dinner",
+        name: "Herb-crusted sea bass (spigola) with roasted zucchini, capers & olive oil",
+        calories: 480,
+        protein: 42,
+        carbs: 24,
+        fat: 16,
+        ingredients: ["sea bass fillet", "roasted zucchini", "capers", "olive oil", "fresh oregano"],
+        tags: ["italian", "dinner", "pescatarian"],
+      },
+    ],
+  },
+  {
+    id: "egyptian",
+    name: "Egyptian",
+    keywords: ["egyptian", "egypt", "baladi", "ful", "kofta", "areesh", "koshary"],
+    summary: "Ful medames with boiled eggs, Grilled chicken with jasmine rice, Greek yogurt, and Lean beef kofta",
+    meals: [
+      {
+        slot: "breakfast",
+        name: "Ful medames with boiled eggs, cumin & baladi bread",
+        calories: 450,
+        protein: 28,
+        carbs: 52,
+        fat: 14,
+        ingredients: ["fava beans", "2 boiled eggs", "baladi bread", "tahini", "cumin", "olive oil"],
+        tags: ["egyptian", "breakfast", "high-fiber"],
+      },
+      {
+        slot: "lunch",
+        name: "Grilled chicken breast with jasmine rice & green salad",
+        calories: 520,
+        protein: 45,
+        carbs: 55,
+        fat: 12,
+        ingredients: ["chicken breast", "jasmine rice", "green salad", "olive oil"],
+        tags: ["egyptian", "lunch", "high-protein"],
+      },
+      {
+        slot: "snack",
+        name: "Greek yogurt with honey & raw almonds",
+        calories: 240,
+        protein: 22,
+        carbs: 24,
+        fat: 7,
+        ingredients: ["greek yogurt", "honey", "raw almonds"],
+        tags: ["egyptian", "snack", "high-protein"],
+      },
+      {
+        slot: "dinner",
+        name: "Lean beef kofta with tahini & baladi bread",
+        calories: 480,
+        protein: 40,
+        carbs: 42,
+        fat: 16,
+        ingredients: ["lean beef kofta", "tahini", "baladi bread", "grilled parsley salad"],
+        tags: ["egyptian", "dinner", "high-protein"],
+      },
+    ],
+  },
+  {
+    id: "mediterranean",
+    name: "Mediterranean",
+    keywords: ["mediterranean", "greek", "souvlaki", "feta", "tzatziki"],
+    summary: "Greek omelet with feta, Salmon quinoa bowl, Roasted chickpeas, and Souvlaki skewers with tzatziki",
+    meals: [
+      {
+        slot: "breakfast",
+        name: "Greek omelet with feta, olives, and tomato slice",
+        calories: 400,
+        protein: 28,
+        carbs: 20,
+        fat: 22,
+        ingredients: ["eggs", "feta cheese", "kalamata olives", "tomatoes", "whole wheat toast"],
+        tags: ["mediterranean", "breakfast", "high-protein"],
+      },
+      {
+        slot: "lunch",
+        name: "Tuna or grilled salmon quinoa bowl with lemon-herb dressing",
+        calories: 530,
+        protein: 44,
+        carbs: 48,
+        fat: 16,
+        ingredients: ["grilled salmon", "quinoa", "cucumbers", "cherry tomatoes", "lemon-herb dressing"],
+        tags: ["mediterranean", "lunch", "omega-3"],
+      },
+      {
+        slot: "snack",
+        name: "Roasted chickpeas with sea salt & paprika",
+        calories: 210,
+        protein: 18,
+        carbs: 24,
+        fat: 4,
+        ingredients: ["roasted chickpeas", "paprika", "olive oil", "sea salt"],
+        tags: ["mediterranean", "snack", "high-fiber"],
+      },
+      {
+        slot: "dinner",
+        name: "Souvlaki skewers with tzatziki and grilled vegetables",
+        calories: 490,
+        protein: 42,
+        carbs: 36,
+        fat: 16,
+        ingredients: ["chicken souvlaki skewers", "tzatziki", "grilled bell peppers", "pita bread"],
+        tags: ["mediterranean", "dinner", "high-protein"],
+      },
+    ],
   },
 ];
 
@@ -535,6 +712,9 @@ export function AskNutriCoachPanel() {
   const {
     state,
     activeProfile,
+    activeTargets,
+    weeklySmoothingEnabled,
+    weeklyRebalanceInfo,
     confirmAddMeal,
     replaceMealSlot,
     logMeal,
@@ -558,16 +738,25 @@ export function AskNutriCoachPanel() {
   ]);
 
   const quickPrompts = [
+    "Create tomorrow's plan using Italian foods",
     "Replace tomorrow's breakfast",
     "I want to eat ice cream tomorrow",
     "Change tomorrow's snack to Greek yogurt",
-    "I don't have chicken tonight",
     "Create tomorrow's plan using Egyptian foods",
   ];
 
   // Robust Intent Parsing Engine
   const parseIntent = (prompt: string) => {
     const p = prompt.toLowerCase();
+
+    // 0. Cuisine Matching
+    let matchedCuisine: CuisineTemplate | null = null;
+    for (const c of CUISINE_TEMPLATES) {
+      if (c.keywords.some((kw) => p.includes(kw))) {
+        matchedCuisine = c;
+        break;
+      }
+    }
 
     // 1. Target Day Extraction
     let dayOffset = 0;
@@ -584,7 +773,22 @@ export function AskNutriCoachPanel() {
       dayOffset = 0;
       dayLabel = "Today";
     } else {
-      isAmbiguousDay = true;
+      const dayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+      const matchedDayIndex = dayNames.findIndex((d) => p.includes(d));
+      if (matchedDayIndex >= 0) {
+        const todayIndex = new Date(state.today).getDay();
+        let diff = (matchedDayIndex - todayIndex + 7) % 7;
+        if (diff === 0 && !p.includes("today")) diff = 7;
+        dayOffset = diff;
+        dayLabel = dayNames[matchedDayIndex].charAt(0).toUpperCase() + dayNames[matchedDayIndex].slice(1);
+      } else {
+        isAmbiguousDay = true;
+        // Default cuisine / full day requests to Tomorrow if no day explicitly specified
+        if (matchedCuisine || p.includes("plan")) {
+          dayOffset = 1;
+          dayLabel = "Tomorrow";
+        }
+      }
     }
     const targetDate = addDays(state.today, dayOffset);
 
@@ -633,10 +837,42 @@ export function AskNutriCoachPanel() {
     }
 
     // 5. Intent Type
-    let intentType: "replace_slot" | "specific_food" | "full_plan" | "log_meal" | "general" = "general";
-    if (p.includes("egyptian") || p.includes("full plan")) {
-      intentType = "full_plan";
-    } else if (p.includes("ate ") || p.includes("logged") || p.includes("had ")) {
+    let intentType: "replace_slot" | "specific_food" | "cuisine_plan" | "log_meal" | "general" = "general";
+
+    const isCuisineRequest = matchedCuisine !== null && (
+      p.includes("plan") ||
+      p.includes("create") ||
+      p.includes("switch") ||
+      p.includes("food") ||
+      p.includes("foods") ||
+      p.includes("cuisine") ||
+      p.includes("make") ||
+      p.includes("generate") ||
+      p.includes("using") ||
+      p.includes("italian") ||
+      p.includes("egyptian") ||
+      p.includes("mediterranean") ||
+      p.includes("greek")
+    );
+
+    const isLogMealIntent =
+      (p.startsWith("ate ") ||
+       p.startsWith("logged ") ||
+       p.startsWith("i ate ") ||
+       p.startsWith("i had ") ||
+       p.includes(" i ate ") ||
+       p.includes(" i had ") ||
+       p.includes(" logged a ") ||
+       p.includes(" eaten ")) &&
+      !p.includes("create") &&
+      !p.includes("plan") &&
+      !p.includes("replace") &&
+      !p.includes("switch") &&
+      !p.includes("using");
+
+    if (isCuisineRequest) {
+      intentType = "cuisine_plan";
+    } else if (isLogMealIntent) {
       intentType = "log_meal";
     } else if (p.includes("replace") || p.includes("swap") || p.includes("don't have") || p.includes("dont have") || p.includes("change to another") || p.includes("alternatives")) {
       intentType = "replace_slot";
@@ -651,6 +887,7 @@ export function AskNutriCoachPanel() {
       targetDate,
       targetSlot,
       matchedFood,
+      matchedCuisine,
       avoid,
       intentType,
     };
@@ -671,23 +908,22 @@ export function AskNutriCoachPanel() {
     if (!promptText) setInput("");
     setLoading(true);
 
-    const p = text.toLowerCase();
-
     setTimeout(() => {
       let reply = "";
       let mealPlanCard: MealPlanActionCardData | undefined;
       let alternativesCard: AlternativesCardData | undefined;
       let dayClarification: DayClarificationData | undefined;
       let exclusionPrompt: ExclusionPromptData | undefined;
+      let cuisineCard: CuisineCardData | undefined;
       let pendingConfirmation: AssistantMessage["pendingConfirmation"];
 
       const intent = parseIntent(text);
       const slotTitle = intent.targetSlot.charAt(0).toUpperCase() + intent.targetSlot.slice(1);
 
-      // Check Profile Exclusion & Allergy Guardrails
-      const exclusionMatch = findExcludedMatch(text, activeProfile.disliked_foods, activeProfile.allergies);
+      // Check Profile Exclusion & Allergy Guardrails (unless full cuisine plan requested)
+      const exclusionMatch = intent.intentType !== "cuisine_plan" ? findExcludedMatch(text, activeProfile.disliked_foods, activeProfile.allergies) : null;
 
-      // Branch 0: Profile Restriction / Allergy Guardrail Triggered (e.g. "Can I eat chicken tonight?")
+      // Branch 0: Profile Restriction / Allergy Guardrail Triggered
       if (exclusionMatch) {
         const cleanTerm = exclusionMatch.term.replace(/^no\s+/i, "");
         if (exclusionMatch.isAllergy) {
@@ -706,7 +942,7 @@ export function AskNutriCoachPanel() {
           safeAlternativeDesc: exclusionMatch.isAllergy ? "Safe allergy-free alternative" : "Fish or lean beef alternative",
         };
       }
-      // Branch A: Ambiguous day on a meal swap or food request -> Ask user with [ Today ] [ Tomorrow ] chips
+      // Branch A: Ambiguous day on a single meal swap or food request -> Ask user with [ Today ] [ Tomorrow ] chips
       else if (intent.isAmbiguousDay && (intent.intentType === "replace_slot" || intent.intentType === "specific_food")) {
         reply = `Would you like to apply this to Today's ${slotTitle.toLowerCase()} or Tomorrow's ${slotTitle.toLowerCase()}?`;
         dayClarification = {
@@ -734,7 +970,91 @@ export function AskNutriCoachPanel() {
             }
           : undefined;
       }
-      // Branch C: Replace slot -> Offer 3 curated alternatives with [ Review Alternatives ] modal respecting exclusions
+      // Branch C: Dynamic Cuisine Re-planning Engine (e.g. Italian, Egyptian, Mediterranean)
+      else if (intent.intentType === "cuisine_plan" && intent.matchedCuisine) {
+        const template = intent.matchedCuisine;
+        const targetDate = intent.targetDate;
+        const effectiveTargetCals =
+          intent.dayOffset > 0 && weeklySmoothingEnabled && weeklyRebalanceInfo.isSignificant
+            ? activeTargets.calories + weeklyRebalanceInfo.dailyAdjustment
+            : activeTargets.calories;
+
+        const baseSumCals = template.meals.reduce((sum, m) => sum + m.calories, 0);
+        const ratio = effectiveTargetCals / (baseSumCals || 1);
+
+        // Scale 4 meals proportionally
+        const scaledMeals = template.meals.map((m, idx) => {
+          if (idx < 3) {
+            return {
+              slot: m.slot,
+              name: m.name,
+              calories: Math.round(m.calories * ratio),
+              protein: Math.round(m.protein * ratio),
+              carbs: Math.round(m.carbs * ratio),
+              fat: Math.round(m.fat * ratio),
+              ingredients: m.ingredients,
+              tags: m.tags,
+            };
+          }
+          // Dinner balances rounding to exactly match effectiveTargetCals
+          const prevCals =
+            Math.round(template.meals[0].calories * ratio) +
+            Math.round(template.meals[1].calories * ratio) +
+            Math.round(template.meals[2].calories * ratio);
+          const dinnerCals = Math.max(250, effectiveTargetCals - prevCals);
+          const dinnerRatio = dinnerCals / (m.calories || 1);
+          return {
+            slot: m.slot,
+            name: m.name,
+            calories: dinnerCals,
+            protein: Math.round(m.protein * dinnerRatio),
+            carbs: Math.round(m.carbs * dinnerRatio),
+            fat: Math.round(m.fat * dinnerRatio),
+            ingredients: m.ingredients,
+            tags: m.tags,
+          };
+        });
+
+        const totalScaledCals = scaledMeals.reduce((s, m) => s + m.calories, 0);
+        const totalScaledProtein = scaledMeals.reduce((s, m) => s + m.protein, 0);
+
+        // Mutate the 4 meal slots for the target day
+        for (const m of scaledMeals) {
+          replaceMealSlot({
+            mealType: m.slot,
+            date: targetDate,
+            meal: {
+              meal_name: m.name,
+              calories: m.calories,
+              protein: m.protein,
+              carbs: m.carbs,
+              fat: m.fat,
+              ingredients: m.ingredients,
+              tags: m.tags,
+            },
+            source: `agent:${template.name}`,
+            rebalanceDinner: false,
+          });
+        }
+
+        reply = `I've re-planned ${intent.dayLabel}'s full day with high-protein ${template.name} meals (${template.summary}) calibrated to your ${effectiveTargetCals.toLocaleString()} kcal target.`;
+
+        cuisineCard = {
+          cuisineName: template.name,
+          dayLabel: intent.dayLabel,
+          dayOffset: intent.dayOffset,
+          targetDate,
+          totalCalories: totalScaledCals,
+          totalProtein: totalScaledProtein,
+          meals: scaledMeals.map((m) => ({
+            slot: m.slot.charAt(0).toUpperCase() + m.slot.slice(1),
+            name: m.name,
+            calories: m.calories,
+            protein: m.protein,
+          })),
+        };
+      }
+      // Branch D: Replace slot -> Offer 3 curated alternatives with [ Review Alternatives ] modal respecting exclusions
       else if (intent.intentType === "replace_slot") {
         const alternatives = getSlotAlternatives(
           intent.targetSlot,
@@ -754,7 +1074,7 @@ export function AskNutriCoachPanel() {
           options: alternatives,
         };
       }
-      // Branch D: Specific food item requested (e.g. ice cream, Greek yogurt, salmon)
+      // Branch E: Specific food item requested (e.g. ice cream, Greek yogurt, salmon)
       else if (intent.intentType === "specific_food" && intent.matchedFood) {
         const food = intent.matchedFood;
         reply = `I've prepared ${intent.dayLabel}'s ${slotTitle} with ${food.name} (~${food.calories} kcal). Dinner will be automatically adjusted to keep your daily target perfectly balanced.`;
@@ -774,22 +1094,7 @@ export function AskNutriCoachPanel() {
           confirmed: false,
         };
       }
-      // Branch E: Full Egyptian Plan
-      else if (intent.intentType === "full_plan") {
-        const fulMedames = KNOWN_FOODS.find((f) => f.keywords.includes("ful"))!;
-        const chickenRice = KNOWN_FOODS.find((f) => f.keywords.includes("chicken rice"))!;
-        const yogurt = KNOWN_FOODS.find((f) => f.keywords.includes("greek yogurt"))!;
-        const seaBass = KNOWN_FOODS.find((f) => f.keywords.includes("sea bass"))!;
-
-        const tomorrowDate = addDays(state.today, 1);
-        replaceMealSlot({ mealType: "breakfast", date: tomorrowDate, meal: { meal_name: fulMedames.name, calories: fulMedames.calories, protein: fulMedames.protein, carbs: fulMedames.carbs, fat: fulMedames.fat, ingredients: fulMedames.ingredients, tags: fulMedames.tags }, source: "agent", rebalanceDinner: false });
-        replaceMealSlot({ mealType: "lunch", date: tomorrowDate, meal: { meal_name: chickenRice.name, calories: chickenRice.calories, protein: chickenRice.protein, carbs: chickenRice.carbs, fat: chickenRice.fat, ingredients: chickenRice.ingredients, tags: chickenRice.tags }, source: "agent", rebalanceDinner: false });
-        replaceMealSlot({ mealType: "snack", date: tomorrowDate, meal: { meal_name: yogurt.name, calories: yogurt.calories, protein: yogurt.protein, carbs: yogurt.carbs, fat: yogurt.fat, ingredients: yogurt.ingredients, tags: yogurt.tags }, source: "agent", rebalanceDinner: false });
-        replaceMealSlot({ mealType: "dinner", date: tomorrowDate, meal: { meal_name: seaBass.name, calories: seaBass.calories, protein: seaBass.protein, carbs: seaBass.carbs, fat: seaBass.fat, ingredients: seaBass.ingredients, tags: seaBass.tags }, source: "agent", rebalanceDinner: false });
-
-        reply = `I've updated Tomorrow's full plan with authentic Egyptian favorites (Ful & eggs, Grilled chicken with jasmine rice, Greek yogurt, and Grilled sea bass) calibrated to your calorie goal.`;
-      }
-      // Branch F: Log Meal
+      // Branch F: Log Meal (Explicit food eaten)
       else if (intent.intentType === "log_meal") {
         logMeal({ mealName: "Logged Meal", mealType: "lunch", notes: "Logged via Ask NutriCoach" });
         reply = `I've logged that for your lunch and rebalanced your remaining daily dinner targets accordingly.`;
@@ -807,6 +1112,7 @@ export function AskNutriCoachPanel() {
         alternativesCard,
         dayClarification,
         exclusionPrompt,
+        cuisineCard,
         pendingConfirmation,
         time: "Just now",
       };
@@ -1290,6 +1596,43 @@ export function AskNutriCoachPanel() {
                         </button>
                       </div>
                     )}
+                  </div>
+                </div>
+              )}
+
+              {/* Dynamic Cuisine Plan Card */}
+              {m.cuisineCard && (
+                <div className="bg-surface rounded-lg border border-border p-3 space-y-2 mt-2 shadow-hairline">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-xs font-semibold text-brand">
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>✓ {m.cuisineCard.dayLabel} updated to {m.cuisineCard.cuisineName} Cuisine</span>
+                    </div>
+                    <span className="text-[10px] px-2 py-0.5 bg-brand-tint text-brand rounded font-medium border border-[#D5E6D2]">
+                      {m.cuisineCard.totalCalories} kcal · {m.cuisineCard.totalProtein}g Protein
+                    </span>
+                  </div>
+
+                  <div className="space-y-1.5 pt-1 border-t border-border/60 text-[11px]">
+                    {m.cuisineCard.meals.map((meal) => (
+                      <div key={meal.slot} className="flex items-start justify-between gap-2 text-ink-secondary">
+                        <div className="min-w-0 truncate">
+                          <span className="font-semibold text-ink-primary">{meal.slot}: </span>
+                          <span className="text-ink-secondary">{meal.name}</span>
+                        </div>
+                        <span className="text-ink-muted text-[10px] shrink-0 font-medium">{meal.calories} kcal ({meal.protein}g P)</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="pt-1.5 flex items-center justify-end border-t border-border/60">
+                    <button
+                      onClick={() => handleViewInMealPlan(m.cuisineCard!.dayOffset)}
+                      className="text-xs font-medium text-brand hover:text-brand-hover bg-brand-tint hover:bg-brand-tint/80 px-2.5 py-1 rounded border border-[#D5E6D2] transition-colors flex items-center gap-1"
+                    >
+                      <span>View in Weekly Meal Plan</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 </div>
               )}

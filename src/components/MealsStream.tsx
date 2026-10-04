@@ -272,6 +272,18 @@ export function MealsStream() {
                         <Check className="w-2.5 h-2.5" /> Logged
                       </span>
                     )}
+                    {planned?.source?.startsWith("agent:") && !logged && (
+                      <span className="text-[10px] px-2 py-0.5 bg-brand-tint text-brand rounded font-medium border border-[#D5E6D2] flex items-center gap-1">
+                        <Sparkles className="w-2.5 h-2.5" />
+                        AI Adapted — {planned.source.slice(6)}
+                      </span>
+                    )}
+                    {planned?.source === "agent" && !logged && (
+                      <span className="text-[10px] px-2 py-0.5 bg-brand-tint text-brand rounded font-medium border border-[#D5E6D2] flex items-center gap-1">
+                        <Sparkles className="w-2.5 h-2.5" />
+                        AI Adapted
+                      </span>
+                    )}
                     {planned?.source === "custom" && !logged && (
                       <span className="text-[10px] px-1.5 py-0.2 bg-surface-subtle text-ink-secondary rounded font-medium">
                         Custom
