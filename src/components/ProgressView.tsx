@@ -366,15 +366,15 @@ function GoalProjectionsSection({
         !name.includes("youssef"));
 
     if (isOnboarding) {
-      const delta = Number(activeProfile.target_delta) || (goal.includes("Fat") ? 4 : 3);
-      const isFatLoss = goal.toLowerCase().includes("fat") || goal.toLowerCase().includes("tone");
-      const isMuscleGain = goal.toLowerCase().includes("muscle") || goal.toLowerCase().includes("hypertrophy");
+      const delta = Number(activeProfile.target_delta) || (goal.toLowerCase().includes("fat") ? 4 : 3);
+      const isFatLoss = goal.toLowerCase().includes("fat") || goal.toLowerCase().includes("tone") || goal.toLowerCase().includes("deficit");
+      const isMuscleOrBulking = goal.toLowerCase().includes("gain") || goal.toLowerCase().includes("bulking") || goal.toLowerCase().includes("muscle") || goal.toLowerCase().includes("hypertrophy") || goal.toLowerCase().includes("surplus");
       const sign = isFatLoss ? "-" : "+";
 
       const map = {
         "2w": {
           weightChange: `${sign}${(delta * 0.15).toFixed(1)} kg`,
-          leanMass: isMuscleGain ? `+${(delta * 0.25).toFixed(1)} kg` : "+0.2 kg",
+          leanMass: isMuscleOrBulking ? `+${(delta * 0.25).toFixed(1)} kg` : "+0.2 kg",
           fatMass: isFatLoss ? `-${(delta * 0.2).toFixed(1)} kg` : "-0.1 kg",
           milestone: "2 Weeks Active",
           efficiency: "100% Plan Calibrated",
@@ -382,7 +382,7 @@ function GoalProjectionsSection({
         },
         "1m": {
           weightChange: `${sign}${(delta * 0.35).toFixed(1)} kg`,
-          leanMass: isMuscleGain ? `+${(delta * 0.5).toFixed(1)} kg` : "+0.4 kg",
+          leanMass: isMuscleOrBulking ? `+${(delta * 0.5).toFixed(1)} kg` : "+0.4 kg",
           fatMass: isFatLoss ? `-${(delta * 0.45).toFixed(1)} kg` : "-0.3 kg",
           milestone: "1 Month Active",
           efficiency: "Steady Progress Velocity",
@@ -390,7 +390,7 @@ function GoalProjectionsSection({
         },
         "3m": {
           weightChange: `${sign}${(delta * 0.75).toFixed(1)} kg`,
-          leanMass: isMuscleGain ? `+${(delta * 0.9).toFixed(1)} kg` : "+0.8 kg",
+          leanMass: isMuscleOrBulking ? `+${(delta * 0.9).toFixed(1)} kg` : "+0.8 kg",
           fatMass: isFatLoss ? `-${(delta * 0.85).toFixed(1)} kg` : "-0.6 kg",
           milestone: "3 Months Milestone",
           efficiency: "High Goal Momentum",
@@ -398,7 +398,7 @@ function GoalProjectionsSection({
         },
         "6m": {
           weightChange: `${sign}${delta.toFixed(1)} kg`,
-          leanMass: isMuscleGain ? `+${(delta * 1.3).toFixed(1)} kg` : "+1.5 kg",
+          leanMass: isMuscleOrBulking ? `+${(delta * 1.3).toFixed(1)} kg` : "+1.5 kg",
           fatMass: isFatLoss ? `-${delta.toFixed(1)} kg` : "-1.0 kg",
           milestone: "6 Months Milestone",
           efficiency: "Permanent Lifestyle Baseline",

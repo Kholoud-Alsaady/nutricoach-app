@@ -12,6 +12,9 @@ export function MemberProfileView() {
       if (activeProfile.goal?.toLowerCase().includes("fat loss")) {
         return `Lose ${activeProfile.target_delta} ${activeProfile.target_unit === "% body fat" ? "% body fat" : "kg"}`;
       }
+      if (activeProfile.goal?.toLowerCase().includes("bulking") || activeProfile.goal?.toLowerCase().includes("gain weight")) {
+        return `Gain +${activeProfile.target_delta} ${activeProfile.target_unit === "% body fat" ? "% mass" : "kg Mass"}`;
+      }
       if (activeProfile.goal?.toLowerCase().includes("muscle")) {
         return `Gain +${activeProfile.target_delta} ${activeProfile.target_unit === "% body fat" ? "% muscle" : "kg Muscle"}`;
       }

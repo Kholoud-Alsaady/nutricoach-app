@@ -21,10 +21,10 @@ export function LandingPortal() {
   // New member form state
   const [newName, setNewName] = useState("");
   const [newSex, setNewSex] = useState<"male" | "female">("male");
-  const [newAge, setNewAge] = useState<number>(28);
-  const [newHeight, setNewHeight] = useState<number>(168);
-  const [newWeight, setNewWeight] = useState<number>(72);
-  const [newGoal, setNewGoal] = useState("Fat Loss & Tone");
+  const [newAge, setNewAge] = useState<number>(26);
+  const [newHeight, setNewHeight] = useState<number>(175);
+  const [newWeight, setNewWeight] = useState<number>(75);
+  const [newGoal, setNewGoal] = useState("Fat Loss & Tone (Deficit)");
   const [newTargetDelta, setNewTargetDelta] = useState<number>(4);
   const [newTargetUnit, setNewTargetUnit] = useState<"kg" | "% body fat">("kg");
   const [newDietaryStyle, setNewDietaryStyle] = useState<string>("Standard / Omnivore");
@@ -35,16 +35,16 @@ export function LandingPortal() {
   const [selectedAllergies, setSelectedAllergies] = useState<string[]>([]);
   const [customAllergyInput, setCustomAllergyInput] = useState("");
 
-  // Manual Override Toggle & Custom Values
+  // Direct Calories & Protein State with Live Rec Sync & Manual Override
+  const [newCalories, setNewCalories] = useState<number>(2039);
+  const [newProtein, setNewProtein] = useState<number>(150);
   const [isManualOverride, setIsManualOverride] = useState(false);
-  const [customCalories, setCustomCalories] = useState<number>(1850);
-  const [customProtein, setCustomProtein] = useState<number>(144);
 
   const commonDislikes = ["Chicken", "Tuna", "Mushrooms", "Red Meat", "Eggs", "Dairy"];
   const commonAllergies = ["Peanuts / Nuts", "Dairy / Lactose", "Gluten", "Shellfish", "None"];
   const dietaryStyles = ["Standard / Omnivore", "Vegetarian", "Pescatarian", "Keto / Low-Carb"];
 
-  // Mifflin-St Jeor BMR & TDEE Auto Calculation
+  // Mifflin-St Jeor BMR & TDEE Auto Calculation Engine
   const calculateTargets = (
     sex: "male" | "female",
     age: number,
@@ -52,43 +52,83 @@ export function LandingPortal() {
     weight: number,
     goal: string
   ) => {
-    const w = Number(weight) || 72;
-    const h = Number(height) || 168;
-    const a = Number(age) || 28;
+    const w = Number(weight) || 75;
+    const h = Number(height) || 175;
+    const a = Number(age) || 26;
 
-    // Mifflin-St Jeor formula
+    // A. BMR Formula (Mifflin-St Jeor)
     const bmr =
       sex === "male"
         ? 10 * w + 6.25 * h - 5 * a + 5
         : 10 * w + 6.25 * h - 5 * a - 161;
 
-    // 1.45 Gym activity multiplier
+    // Estimated Active Gym TDEE: BMR * 1.45
     const tdee = Math.round(bmr * 1.45);
 
     let calories = tdee;
-    let protein = Math.round(w * 1.8);
+    let protein = Math.round(1.6 * w);
 
-    if (goal === "Fat Loss & Tone") {
-      calories = Math.max(1250, tdee - 400);
-      protein = Math.round(w * 2.0);
-    } else if (goal === "Lean Muscle Gain & Hypertrophy") {
-      calories = tdee + 250;
-      protein = Math.round(w * 2.0);
-    } else if (goal === "Endurance & Athletic Performance") {
+    // B. Goal Adjustments
+    if (goal.includes("Gain Weight") || goal.includes("Bulking")) {
+      calories = tdee + 400;
+      protein = Math.round(1.8 * w);
+    } else if (goal.includes("Lean Muscle")) {
+      calories = tdee + 200;
+      protein = Math.round(2.0 * w);
+    } else if (goal.includes("Fat Loss")) {
+      calories = Math.max(1200, tdee - 450);
+      protein = Math.round(2.0 * w);
+    } else if (goal.includes("Endurance")) {
       calories = tdee + 100;
-      protein = Math.round(w * 1.8);
+      protein = Math.round(1.6 * w);
     } else {
       // Maintenance & General Health
       calories = tdee;
-      protein = Math.round(w * 1.6);
+      protein = Math.round(1.6 * w);
     }
 
     return { bmr: Math.round(bmr), tdee, calories, protein };
   };
 
   const computedTargets = calculateTargets(newSex, newAge, newHeight, newWeight, newGoal);
-  const effectiveCalories = isManualOverride ? customCalories : computedTargets.calories;
-  const effectiveProtein = isManualOverride ? customProtein : computedTargets.protein;
+
+  // Sync biometrics changes to calories/protein in real time when not in manual override
+  const handleBiometricChange = (
+    updated: {
+      sex?: "male" | "female";
+      age?: number;
+      height?: number;
+      weight?: number;
+      goal?: string;
+    }
+  ) => {
+    const s = updated.sex ?? newSex;
+    const a = updated.age ?? newAge;
+    const h = updated.height ?? newHeight;
+    const w = updated.weight ?? newWeight;
+    const g = updated.goal ?? newGoal;
+
+    if (updated.sex !== undefined) setNewSex(updated.sex);
+    if (updated.age !== undefined) setNewAge(updated.age);
+    if (updated.height !== undefined) setNewHeight(updated.height);
+    if (updated.weight !== undefined) setNewWeight(updated.weight);
+    if (updated.goal !== undefined) {
+      setNewGoal(updated.goal);
+      if (updated.goal.includes("Gain Weight") || updated.goal.includes("Bulking")) {
+        setNewTargetDelta(3);
+      } else if (updated.goal.includes("Fat Loss")) {
+        setNewTargetDelta(4);
+      } else if (updated.goal.includes("Lean Muscle")) {
+        setNewTargetDelta(3);
+      }
+    }
+
+    if (!isManualOverride) {
+      const rec = calculateTargets(s, a, h, w, g);
+      setNewCalories(rec.calories);
+      setNewProtein(rec.protein);
+    }
+  };
 
   const toggleDislike = (item: string) => {
     setSelectedDislikes((prev) =>
@@ -136,16 +176,19 @@ export function LandingPortal() {
   };
 
   const getDynamicGoalPreview = () => {
-    if (newGoal === "Fat Loss & Tone") {
-      return `Lose ${newTargetDelta} ${newTargetUnit === "kg" ? "kg" : "% body fat"}`;
+    if (newGoal.includes("Gain Weight") || newGoal.includes("Bulking")) {
+      return `Goal: +${newTargetDelta} ${newTargetUnit === "kg" ? "kg mass gain" : "% mass gain"}`;
     }
-    if (newGoal === "Lean Muscle Gain & Hypertrophy") {
-      return `Gain +${newTargetDelta} ${newTargetUnit === "kg" ? "kg lean muscle" : "% muscle mass"}`;
+    if (newGoal.includes("Lean Muscle")) {
+      return `Goal: Gain +${newTargetDelta} ${newTargetUnit === "kg" ? "kg lean muscle" : "% muscle mass"}`;
     }
-    if (newGoal === "Endurance & Athletic Performance") {
-      return `+${newTargetDelta} ${newTargetUnit === "kg" ? "kg stamina efficiency" : "% VO2 endurance"}`;
+    if (newGoal.includes("Fat Loss")) {
+      return `Goal: Lose ${newTargetDelta} ${newTargetUnit === "kg" ? "kg" : "% body fat"}`;
     }
-    return `Maintain ±${newTargetDelta} ${newTargetUnit === "kg" ? "kg weight" : "% body composition"}`;
+    if (newGoal.includes("Endurance")) {
+      return `Goal: +${newTargetDelta} ${newTargetUnit === "kg" ? "kg stamina efficiency" : "% VO2 endurance"}`;
+    }
+    return `Goal: Maintain ±${newTargetDelta} ${newTargetUnit === "kg" ? "kg weight" : "% body composition"}`;
   };
 
   const handleCreateMember = (e: React.FormEvent) => {
@@ -155,11 +198,11 @@ export function LandingPortal() {
     addNewMember({
       name: newName.trim(),
       sex: newSex,
-      age: Number(newAge) || 28,
-      height: Number(newHeight) || 168,
-      weight: Number(newWeight) || 72,
-      calorieGoal: effectiveCalories,
-      proteinGoal: effectiveProtein,
+      age: Number(newAge) || 26,
+      height: Number(newHeight) || 175,
+      weight: Number(newWeight) || 75,
+      calorieGoal: Number(newCalories) || computedTargets.calories,
+      proteinGoal: Number(newProtein) || computedTargets.protein,
       dietGoal: newGoal,
       targetDelta: Number(newTargetDelta) || 0,
       targetUnit: newTargetUnit,
@@ -351,7 +394,7 @@ export function LandingPortal() {
                   <Sparkles className="w-4 h-4 text-brand" />
                   <span>Create New Member Profile</span>
                 </h3>
-                <p className="text-[11px] text-ink-muted">Complete biometric intake, primary goal, dietary style & allergen guardrails</p>
+                <p className="text-[11px] text-ink-muted">Biometric intake, primary goal, dynamic target calculation & allergen guardrails</p>
               </div>
               <button
                 type="button"
@@ -364,19 +407,20 @@ export function LandingPortal() {
 
             <div className="space-y-4 text-xs">
               {/* Section A: Biometrics & Demographics */}
-              <div className="space-y-2">
+              <div className="space-y-2.5">
                 <div className="text-[11px] font-semibold text-ink-primary uppercase tracking-wide flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-brand" />
-                  <span>A. Biometrics & Demographics</span>
+                  <span>1. Biometrics & Demographics</span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                {/* Row 1: Full Name & Sex */}
+                <div className="grid grid-cols-3 gap-3 items-end">
                   <div className="col-span-2">
                     <label className="block font-medium text-ink-secondary mb-1">Full Name</label>
                     <input
                       type="text"
                       required
-                      placeholder="e.g. Hala Mahmoud"
+                      placeholder="e.g. Tarek Mansour"
                       value={newName}
                       onChange={(e) => setNewName(e.target.value)}
                       className="w-full bg-surface-subtle border border-border rounded-md px-3 py-1.5 text-ink-primary focus:outline-none focus:border-brand font-medium text-xs"
@@ -388,8 +432,8 @@ export function LandingPortal() {
                     <div className="flex rounded-md bg-surface-subtle p-0.5 border border-border">
                       <button
                         type="button"
-                        onClick={() => setNewSex("male")}
-                        className={`flex-1 py-1.5 text-xs font-medium rounded transition-all ${
+                        onClick={() => handleBiometricChange({ sex: "male" })}
+                        className={`flex-1 py-1 text-[11px] font-medium rounded transition-all ${
                           newSex === "male"
                             ? "bg-brand text-white shadow-hairline"
                             : "text-ink-secondary hover:text-ink-primary"
@@ -399,8 +443,8 @@ export function LandingPortal() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => setNewSex("female")}
-                        className={`flex-1 py-1.5 text-xs font-medium rounded transition-all ${
+                        onClick={() => handleBiometricChange({ sex: "female" })}
+                        className={`flex-1 py-1 text-[11px] font-medium rounded transition-all ${
                           newSex === "female"
                             ? "bg-brand text-white shadow-hairline"
                             : "text-ink-secondary hover:text-ink-primary"
@@ -410,16 +454,20 @@ export function LandingPortal() {
                       </button>
                     </div>
                   </div>
+                </div>
 
+                {/* Row 2: Clean 3-Column Biometric Row (Age, Height, Weight) */}
+                <div className="grid grid-cols-3 gap-3">
                   <div>
-                    <label className="block font-medium text-ink-secondary mb-1">Age (Years)</label>
+                    <label className="block font-medium text-ink-secondary mb-1">Age (years)</label>
                     <input
                       type="number"
                       min={14}
                       max={90}
                       required
+                      placeholder="e.g. 26"
                       value={newAge}
-                      onChange={(e) => setNewAge(Number(e.target.value))}
+                      onChange={(e) => handleBiometricChange({ age: Number(e.target.value) })}
                       className="w-full bg-surface-subtle border border-border rounded-md px-3 py-1.5 text-ink-primary focus:outline-none focus:border-brand font-medium text-xs"
                     />
                   </div>
@@ -431,8 +479,9 @@ export function LandingPortal() {
                       min={120}
                       max={230}
                       required
+                      placeholder="e.g. 175"
                       value={newHeight}
-                      onChange={(e) => setNewHeight(Number(e.target.value))}
+                      onChange={(e) => handleBiometricChange({ height: Number(e.target.value) })}
                       className="w-full bg-surface-subtle border border-border rounded-md px-3 py-1.5 text-ink-primary focus:outline-none focus:border-brand font-medium text-xs"
                     />
                   </div>
@@ -444,8 +493,9 @@ export function LandingPortal() {
                       min={35}
                       max={250}
                       required
+                      placeholder="e.g. 75"
                       value={newWeight}
-                      onChange={(e) => setNewWeight(Number(e.target.value))}
+                      onChange={(e) => handleBiometricChange({ weight: Number(e.target.value) })}
                       className="w-full bg-surface-subtle border border-border rounded-md px-3 py-1.5 text-ink-primary focus:outline-none focus:border-brand font-medium text-xs"
                     />
                   </div>
@@ -453,20 +503,21 @@ export function LandingPortal() {
               </div>
 
               {/* Section B: Goal & Target Delta */}
-              <div className="space-y-2 pt-2 border-t border-border">
+              <div className="space-y-2.5 pt-2 border-t border-border">
                 <div className="text-[11px] font-semibold text-ink-primary uppercase tracking-wide flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-brand" />
-                  <span>B. Goal & Target Delta</span>
+                  <span>2. Primary Nutrition Goal & Milestone</span>
                 </div>
 
                 <div>
-                  <label className="block font-medium text-ink-secondary mb-1">Primary Goal</label>
+                  <label className="block font-medium text-ink-secondary mb-1">Primary Nutrition Goal</label>
                   <select
                     value={newGoal}
-                    onChange={(e) => setNewGoal(e.target.value)}
+                    onChange={(e) => handleBiometricChange({ goal: e.target.value })}
                     className="w-full bg-surface-subtle border border-border rounded-md px-3 py-1.5 text-ink-primary focus:outline-none focus:border-brand font-medium text-xs"
                   >
-                    <option value="Fat Loss & Tone">Fat Loss & Tone</option>
+                    <option value="Fat Loss & Tone (Deficit)">Fat Loss & Tone (Deficit)</option>
+                    <option value="Gain Weight & Bulking (Surplus)">Gain Weight & Bulking (Surplus)</option>
                     <option value="Lean Muscle Gain & Hypertrophy">Lean Muscle Gain & Hypertrophy</option>
                     <option value="Endurance & Athletic Performance">Endurance & Athletic Performance</option>
                     <option value="Maintenance & General Health">Maintenance & General Health</option>
@@ -475,7 +526,7 @@ export function LandingPortal() {
 
                 <div className="bg-surface-subtle/70 rounded-lg border border-border p-3 space-y-2">
                   <div className="flex items-center justify-between">
-                    <label className="font-medium text-ink-secondary text-[11px]">Target Weight Delta</label>
+                    <label className="font-medium text-ink-secondary text-[11px]">Quantitative Goal Target</label>
                     <span className="text-[10px] text-ink-muted">Measurable milestone</span>
                   </div>
 
@@ -487,7 +538,7 @@ export function LandingPortal() {
                         max={50}
                         value={newTargetDelta}
                         onChange={(e) => setNewTargetDelta(Number(e.target.value))}
-                        placeholder="e.g. 4"
+                        placeholder="e.g. 3"
                         className="w-full bg-surface border border-border rounded-md px-3 py-1.5 text-ink-primary focus:outline-none focus:border-brand font-semibold text-xs"
                       />
                     </div>
@@ -520,8 +571,77 @@ export function LandingPortal() {
 
                   {/* Dynamic Preview Text */}
                   <div className="text-[11px] text-brand font-medium bg-brand-tint/60 px-2.5 py-1 rounded border border-[#D5E6D2] flex items-center justify-between">
-                    <span>🎯 Goal: {getDynamicGoalPreview()}</span>
-                    <span className="text-[10px] text-brand font-semibold">Active Milestone</span>
+                    <span>🎯 {getDynamicGoalPreview()}</span>
+                    <span className="text-[10px] text-brand font-semibold">Active Objective</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Section D: Dynamic Calorie & Protein Engine */}
+              <div className="space-y-2 pt-2 border-t border-border">
+                <div className="flex items-center justify-between flex-wrap gap-1">
+                  <div className="text-[11px] font-semibold text-ink-primary uppercase tracking-wide flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-brand" />
+                    <span>3. Daily Nutrition Targets</span>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-brand-tint border border-[#D5E6D2] text-brand">
+                      <Sparkles className="w-3 h-3 text-brand" />
+                      <span>Recommended based on biometrics & goal</span>
+                    </span>
+                    {isManualOverride && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsManualOverride(false);
+                          const rec = calculateTargets(newSex, newAge, newHeight, newWeight, newGoal);
+                          setNewCalories(rec.calories);
+                          setNewProtein(rec.protein);
+                        }}
+                        className="text-[10px] text-brand hover:underline font-medium"
+                      >
+                        ↺ Reset
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Prescribed Daily Calories & Protein Inputs (Real-time auto calculated + editable) */}
+                <div className="grid grid-cols-2 gap-3 bg-surface-subtle/80 p-3 rounded-lg border border-border">
+                  <div>
+                    <label className="block font-medium text-ink-secondary mb-1">Daily Calories (kcal)</label>
+                    <input
+                      type="number"
+                      min={800}
+                      max={6000}
+                      value={newCalories}
+                      onChange={(e) => {
+                        setIsManualOverride(true);
+                        setNewCalories(Number(e.target.value));
+                      }}
+                      className="w-full bg-surface border border-border rounded-md px-3 py-1.5 text-ink-primary focus:outline-none focus:border-brand font-semibold text-xs"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-medium text-ink-secondary mb-1">Daily Protein (g)</label>
+                    <input
+                      type="number"
+                      min={30}
+                      max={350}
+                      value={newProtein}
+                      onChange={(e) => {
+                        setIsManualOverride(true);
+                        setNewProtein(Number(e.target.value));
+                      }}
+                      className="w-full bg-surface border border-border rounded-md px-3 py-1.5 text-ink-primary focus:outline-none focus:border-brand font-semibold text-xs"
+                    />
+                  </div>
+
+                  <div className="col-span-2 text-[10px] text-ink-muted flex items-center justify-between pt-1 border-t border-border/60">
+                    <span>BMR: ~{computedTargets.bmr} kcal · 1.45 TDEE: ~{computedTargets.tdee} kcal</span>
+                    <span className="text-brand font-medium">Auto-calibrated for {newGoal}</span>
                   </div>
                 </div>
               </div>
@@ -530,7 +650,7 @@ export function LandingPortal() {
               <div className="space-y-3 pt-2 border-t border-border">
                 <div className="text-[11px] font-semibold text-ink-primary uppercase tracking-wide flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-brand" />
-                  <span>C. Dietary Preferences, Allergies & Exclusions</span>
+                  <span>4. Dietary Preferences, Allergies & Exclusions</span>
                 </div>
 
                 {/* Dietary Style */}
@@ -673,67 +793,6 @@ export function LandingPortal() {
                     </button>
                   </div>
                 </div>
-              </div>
-
-              {/* Section D: Automatic Target Calculation */}
-              <div className="space-y-2.5 pt-2 border-t border-border">
-                <div className="text-[11px] font-semibold text-ink-primary uppercase tracking-wide flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-brand" />
-                  <span>D. Daily Nutrition Targets</span>
-                </div>
-
-                <div className="bg-brand-tint/60 border border-[#D5E6D2] rounded-lg p-3 flex items-center justify-between gap-3">
-                  <div className="space-y-0.5">
-                    <div className="text-xs font-semibold text-brand flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5" />
-                      <span>Recommended: ~{computedTargets.calories.toLocaleString()} kcal · {computedTargets.protein}g Protein</span>
-                    </div>
-                    <div className="text-[10px] text-ink-secondary">
-                      Mifflin-St Jeor BMR ({computedTargets.bmr} kcal) + 1.45 TDEE ({computedTargets.tdee} kcal) · {newGoal}
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!isManualOverride) {
-                        setCustomCalories(computedTargets.calories);
-                        setCustomProtein(computedTargets.protein);
-                      }
-                      setIsManualOverride(!isManualOverride);
-                    }}
-                    className="text-[11px] font-semibold px-2.5 py-1 rounded bg-surface border border-border text-ink-primary hover:bg-surface-subtle transition-all shrink-0"
-                  >
-                    {isManualOverride ? "Use Auto Calculated" : "Edit Manually"}
-                  </button>
-                </div>
-
-                {isManualOverride && (
-                  <div className="grid grid-cols-2 gap-3 p-3 bg-surface-subtle rounded-lg border border-border">
-                    <div>
-                      <label className="block font-medium text-ink-secondary mb-1">Custom Daily Calories (kcal)</label>
-                      <input
-                        type="number"
-                        min={800}
-                        max={6000}
-                        value={customCalories}
-                        onChange={(e) => setCustomCalories(Number(e.target.value))}
-                        className="w-full bg-surface border border-border rounded-md px-3 py-1.5 text-ink-primary focus:outline-none focus:border-brand font-semibold"
-                      />
-                    </div>
-                    <div>
-                      <label className="block font-medium text-ink-secondary mb-1">Custom Daily Protein (g)</label>
-                      <input
-                        type="number"
-                        min={30}
-                        max={350}
-                        value={customProtein}
-                        onChange={(e) => setCustomProtein(Number(e.target.value))}
-                        className="w-full bg-surface border border-border rounded-md px-3 py-1.5 text-ink-primary focus:outline-none focus:border-brand font-semibold"
-                      />
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
 
