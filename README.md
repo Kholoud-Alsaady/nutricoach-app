@@ -6,7 +6,7 @@ NutriCoach is an adaptive AI nutrition platform built for gym athletes and coach
 
 ---
 
-## 🏛️ Architecture Diagrams
+## 🏛️ Architecture & Process Diagrams
 
 ### 1. System Topology & Dual Experiences
 

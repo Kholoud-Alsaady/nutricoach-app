@@ -29,6 +29,16 @@ import { DEMO_COACH_ID, DEMO_GYM_ID, type DemoMemberSpec } from "@/lib/agent/see
 
 export type AppView = "portal" | "member" | "coach";
 
+export interface WeeklyRebalanceInfo {
+  delta: number;
+  isSignificant: boolean;
+  dailyAdjustment: number;
+  remainingDaysCount: number;
+  enabled: boolean;
+  todayCaloriesLogged: number;
+  targetCalories: number;
+}
+
 export interface AgentActionCard {
   type: "plan_updated" | "logged" | "info" | "question_sent";
   title: string;
@@ -55,6 +65,11 @@ interface NutriCoachContextType {
   activeMessages: MemberMessage[];
   allMessages: Record<string, MemberMessage[]>;
   measuredImpact: ReturnType<typeof measureImpact>;
+  weeklySmoothingEnabled: boolean;
+  toggleWeeklySmoothing: () => void;
+  weeklyRebalanceInfo: WeeklyRebalanceInfo;
+  selectedPlanDayOffset: number;
+  setSelectedPlanDayOffset: (offset: number) => void;
 
   // Member Management
   setActiveMember: (id: string) => void;
@@ -69,7 +84,7 @@ interface NutriCoachContextType {
   logCustomMeal: (params: { mealType: MealType; mealName: string; calories: number; protein: number; carbs: number; fat: number; notes?: string }) => void;
   deleteLog: (logId: string) => void;
   replaceMeal: (params: { mealType: MealType; avoid?: string[]; reason?: string }) => void;
-  replaceMealSlot: (params: { mealType: MealType; date?: string; meal: MealSnapshot; source?: "coach" | "agent" | "custom" }) => void;
+  replaceMealSlot: (params: { mealType: MealType; date?: string; meal: MealSnapshot; source?: "coach" | "agent" | "custom"; rebalanceDinner?: boolean }) => void;
   addExtraMeal: (params: { mealType: string; mealName: string; calories: number; protein: number; carbs: number; fat: number; asLogged?: boolean; date?: string }) => void;
   confirmAddMeal: (params: { mealName: string; calories: number; protein: number; carbs: number; fat: number; mealType: string; targetDate: string; asLogged?: boolean }) => void;
   sendMemberMessage: (text: string) => Promise<void>;
@@ -136,6 +151,33 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
     protein: Math.max(0, activeTargets.protein - todayLoggedMacros.protein),
     carbs: Math.max(0, activeTargets.carbs - todayLoggedMacros.carbs),
     fat: Math.max(0, activeTargets.fat - todayLoggedMacros.fat),
+  };
+
+  const [weeklySmoothingEnabled, setWeeklySmoothingEnabled] = useState(true);
+  const [selectedPlanDayOffset, setSelectedPlanDayOffset] = useState<number>(0);
+
+  const toggleWeeklySmoothing = () => setWeeklySmoothingEnabled((prev) => !prev);
+
+  // Weekly Compensatory Rebalancing Logic
+  // Delta = Actual Calories Logged Today - Daily Calorie Target
+  const todayCaloriesLogged = todayLoggedMacros.calories;
+  const hasLoggedToday = todayMealLogs.length > 0;
+  const delta = hasLoggedToday ? todayCaloriesLogged - activeTargets.calories : 0;
+  const isSignificantDelta = hasLoggedToday && Math.abs(delta) > 50;
+
+  // Remaining upcoming days N (e.g. tomorrow through next 6 days)
+  const remainingDaysCount = 6;
+  const rawAdjustment = remainingDaysCount > 0 ? Math.round(-delta / remainingDaysCount) : 0;
+  const dailyAdjustment = Math.max(-150, Math.min(150, rawAdjustment));
+
+  const weeklyRebalanceInfo: WeeklyRebalanceInfo = {
+    delta,
+    isSignificant: isSignificantDelta,
+    dailyAdjustment,
+    remainingDaysCount,
+    enabled: weeklySmoothingEnabled,
+    todayCaloriesLogged,
+    targetCalories: activeTargets.calories,
   };
 
   const pendingProposals = state.actions.filter(
@@ -429,17 +471,19 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
     });
   };
 
-  // Direct meal slot replacement in plan or today
+  // Direct meal slot replacement in plan or today with dinner auto-rebalancing
   const replaceMealSlot = ({
     mealType,
     date = today,
     meal,
     source = "agent",
+    rebalanceDinner = true,
   }: {
     mealType: MealType;
     date?: string;
     meal: MealSnapshot;
     source?: "coach" | "agent" | "custom";
+    rebalanceDinner?: boolean;
   }) => {
     setState((prev) => {
       const memberId = prev.activeMemberId;
@@ -469,12 +513,76 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
         currentPlanned.push(updatedSlot);
       }
 
+      // If modifying a non-dinner meal slot, auto-rebalance dinner for that day so total calories stay balanced
+      let dinnerRebalancedNote = "";
+      if (rebalanceDinner && mealType !== "dinner") {
+        const dinnerIdx = currentPlanned.findIndex((p) => p.date === date && p.meal_type === "dinner");
+        if (dinnerIdx >= 0) {
+          const oldDinner = currentPlanned[dinnerIdx];
+          const effectiveDailyTarget =
+            weeklySmoothingEnabled && isSignificantDelta && date !== today
+              ? activeTargets.calories + dailyAdjustment
+              : activeTargets.calories;
+
+          const otherMealsCals = currentPlanned
+            .filter((p) => p.date === date && p.meal_type !== "dinner")
+            .reduce((sum, m) => sum + m.calories, 0);
+
+          const newDinnerCals = Math.max(250, effectiveDailyTarget - otherMealsCals);
+          const ratio = oldDinner.calories > 0 ? newDinnerCals / oldDinner.calories : 1;
+          const newDinnerProtein = Math.max(15, Math.round(oldDinner.protein * ratio));
+          const newDinnerCarbs = Math.max(15, Math.round(oldDinner.carbs * ratio));
+          const newDinnerFat = Math.max(5, Math.round(oldDinner.fat * ratio));
+
+          currentPlanned[dinnerIdx] = {
+            ...oldDinner,
+            calories: newDinnerCals,
+            protein: newDinnerProtein,
+            carbs: newDinnerCarbs,
+            fat: newDinnerFat,
+            source: "agent",
+            updated_at: new Date().toISOString(),
+          };
+
+          dinnerRebalancedNote = ` (Dinner recalibrated to ${newDinnerCals} kcal to maintain daily balance)`;
+        }
+      }
+
+      const impact = impactFor("replace_meal", prev.gym.estimated_coach_hourly_value);
+      const actionTitle = date === today ? "Today" : date === addDays(today, 1) ? "Tomorrow" : date;
+      const newAction: AgentAction = {
+        id: `act-${Date.now()}`,
+        member_id: memberId,
+        gym_id: prev.gym.id,
+        initiated_by: memberId,
+        action_type: "replace_meal",
+        user_request: `Adjust ${actionTitle}'s ${mealType} to ${meal.meal_name}`,
+        summary: `Updated ${actionTitle}'s ${mealType} to ${meal.meal_name} (${meal.calories} kcal)${dinnerRebalancedNote}`,
+        tools_used: [
+          { tool: "replace_meal", summary: `Assigned ${meal.meal_name} to ${actionTitle} ${mealType}` },
+          { tool: "calculate_remaining_nutrition", summary: "Recalculated daily macro targets" },
+        ],
+        proposed_change: null,
+        requires_coach_approval: false,
+        approved: true,
+        execution_status: "executed",
+        decided_by: memberId,
+        decided_at: new Date().toISOString(),
+        decision_note: "Directly applied by NutriCoach agent",
+        estimated_manual_minutes: impact.estimated_manual_minutes,
+        estimated_agent_minutes: impact.estimated_agent_minutes,
+        estimated_minutes_saved: impact.estimated_minutes_saved,
+        estimated_cost_value: impact.estimated_cost_value,
+        created_at: new Date().toISOString(),
+      };
+
       return {
         ...prev,
         plannedMeals: {
           ...prev.plannedMeals,
           [memberId]: currentPlanned,
         },
+        actions: [newAction, ...prev.actions],
       };
     });
   };
@@ -958,6 +1066,11 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
         measuredImpact,
         activeMessages,
         allMessages,
+        weeklySmoothingEnabled,
+        toggleWeeklySmoothing,
+        weeklyRebalanceInfo,
+        selectedPlanDayOffset,
+        setSelectedPlanDayOffset,
         setActiveMember,
         selectMemberAndEnter,
         addNewMember,

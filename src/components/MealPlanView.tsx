@@ -7,8 +7,18 @@ import { useNutriCoach } from "./NutriCoachContext";
 import type { MealSnapshot, MealType } from "@/lib/types";
 
 export function MealPlanView() {
-  const { state, activeTargets, activePlannedMeals, replaceMealSlot, adaptDailyPlan } = useNutriCoach();
-  const [selectedDayOffset, setSelectedDayOffset] = useState<number>(0);
+  const {
+    state,
+    activeTargets,
+    activePlannedMeals,
+    replaceMealSlot,
+    adaptDailyPlan,
+    weeklySmoothingEnabled,
+    toggleWeeklySmoothing,
+    weeklyRebalanceInfo,
+    selectedPlanDayOffset,
+    setSelectedPlanDayOffset,
+  } = useNutriCoach();
 
   // Replace meal modal state
   const [replacingSlot, setReplacingSlot] = useState<MealType | null>(null);
@@ -21,16 +31,28 @@ export function MealPlanView() {
   const [customReplaceFat, setCustomReplaceFat] = useState<number>(16);
 
   const today = state.today;
-  const currentSelectedDate = addDays(today, selectedDayOffset);
+  const currentSelectedDate = addDays(today, selectedPlanDayOffset);
+
+  // Effective day target based on weekly smoothing
+  const effectiveDayTarget =
+    selectedPlanDayOffset > 0 && weeklySmoothingEnabled && weeklyRebalanceInfo.isSignificant
+      ? activeTargets.calories + weeklyRebalanceInfo.dailyAdjustment
+      : activeTargets.calories;
 
   // 7-day selector
   const days = Array.from({ length: 7 }, (_, i) => {
     const date = addDays(today, i);
+    const dayTarget =
+      i > 0 && weeklySmoothingEnabled && weeklyRebalanceInfo.isSignificant
+        ? activeTargets.calories + weeklyRebalanceInfo.dailyAdjustment
+        : activeTargets.calories;
+
     return {
       offset: i,
       date,
       label: relativeDay(date, today),
       short: formatDay(date, { weekday: "short" }),
+      target: dayTarget,
     };
   });
 
@@ -72,7 +94,7 @@ export function MealPlanView() {
 
   const handleSelectSuggestion = (meal: MealSnapshot) => {
     if (!replacingSlot) return;
-    replaceMealSlot({ mealType: replacingSlot, date: currentSelectedDate, meal, source: "agent" });
+    replaceMealSlot({ mealType: replacingSlot, date: currentSelectedDate, meal, source: "agent", rebalanceDinner: true });
     setReplacingSlot(null);
   };
 
@@ -103,7 +125,7 @@ export function MealPlanView() {
       tags: ["custom"],
     };
 
-    replaceMealSlot({ mealType: replacingSlot, date: currentSelectedDate, meal: customMeal, source: "custom" });
+    replaceMealSlot({ mealType: replacingSlot, date: currentSelectedDate, meal: customMeal, source: "custom", rebalanceDinner: true });
     setReplacingSlot(null);
   };
 
@@ -175,25 +197,87 @@ export function MealPlanView() {
           </span>
         </div>
         <div className="text-[11px] text-ink-muted">
-          Target: <strong className="font-semibold text-ink-primary">{dietInfo.calorieTarget}</strong> · <strong className="font-semibold text-brand">{dietInfo.proteinTarget}</strong>
+          Base Target: <strong className="font-semibold text-ink-primary">{dietInfo.calorieTarget}</strong> · <strong className="font-semibold text-brand">{dietInfo.proteinTarget}</strong>
         </div>
       </div>
+
+      {/* Multi-Day Weekly Calorie Compensatory Rebalancing Banner & Agency Toggle */}
+      {weeklyRebalanceInfo.isSignificant && (
+        <div className="bg-surface rounded-lg border border-brand/40 bg-gradient-to-r from-brand-tint/40 to-surface p-3.5 shadow-hairline flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-start gap-2.5 max-w-xl">
+            <div className="w-5 h-5 rounded bg-brand text-white flex items-center justify-center shrink-0 mt-0.5">
+              <Sparkles className="w-3 h-3" />
+            </div>
+            <div className="space-y-0.5 text-xs">
+              <div className="font-semibold text-ink-primary flex items-center gap-2">
+                <span>Weekly Auto-Balance Active</span>
+                <span className="text-[10px] font-medium px-2 py-0.2 bg-brand-tint text-brand rounded border border-[#D5E6D2]">
+                  {weeklyRebalanceInfo.delta > 0 ? `+${weeklyRebalanceInfo.delta}` : weeklyRebalanceInfo.delta} kcal logged today
+                </span>
+              </div>
+              <p className="text-ink-secondary text-[11px] leading-relaxed">
+                Daily targets adjusted by{" "}
+                <strong className="font-semibold text-brand">
+                  {weeklyRebalanceInfo.dailyAdjustment > 0 ? `+${weeklyRebalanceInfo.dailyAdjustment}` : weeklyRebalanceInfo.dailyAdjustment} kcal/day
+                </strong>{" "}
+                across the next {weeklyRebalanceInfo.remainingDaysCount} days to compensate for today&apos;s intake.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 bg-surface-subtle p-0.5 rounded-lg border border-border shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                if (!weeklySmoothingEnabled) toggleWeeklySmoothing();
+              }}
+              className={`text-[11px] font-medium px-2.5 py-1 rounded transition-all ${
+                weeklySmoothingEnabled
+                  ? "bg-brand text-white shadow-hairline"
+                  : "text-ink-muted hover:text-ink-primary"
+              }`}
+            >
+              Apply weekly smoothing
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (weeklySmoothingEnabled) toggleWeeklySmoothing();
+              }}
+              className={`text-[11px] font-medium px-2.5 py-1 rounded transition-all ${
+                !weeklySmoothingEnabled
+                  ? "bg-surface text-ink-primary shadow-hairline"
+                  : "text-ink-muted hover:text-ink-primary"
+              }`}
+            >
+              Keep original targets
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 7-Day Horizontal Selector */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
         {days.map((d) => {
-          const isSelected = selectedDayOffset === d.offset;
+          const isSelected = selectedPlanDayOffset === d.offset;
           return (
             <button
               key={d.date}
-              onClick={() => setSelectedDayOffset(d.offset)}
-              className={`px-3 py-2 rounded-lg border text-xs text-left transition-all shrink-0 ${
+              onClick={() => setSelectedPlanDayOffset(d.offset)}
+              className={`px-3 py-2 rounded-lg border text-xs text-left transition-all shrink-0 min-w-[90px] ${
                 isSelected
                   ? "bg-surface border-brand shadow-card"
                   : "bg-surface-subtle border-border text-ink-secondary hover:bg-surface hover:text-ink-primary"
               }`}
             >
-              <div className="text-[10px] text-ink-muted uppercase">{d.short}</div>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-ink-muted uppercase">{d.short}</span>
+                {d.offset > 0 && weeklySmoothingEnabled && weeklyRebalanceInfo.isSignificant && (
+                  <span className="text-[9px] text-brand font-semibold">
+                    {d.target}k
+                  </span>
+                )}
+              </div>
               <div className="font-medium text-ink-primary mt-0.5">{d.label}</div>
             </button>
           );
@@ -204,11 +288,20 @@ export function MealPlanView() {
       <div className="bg-surface rounded-lg border border-border p-4 shadow-card space-y-4">
         <div className="flex items-center justify-between border-b border-border pb-3">
           <div>
-            <h3 className="text-xs font-medium text-ink-primary">
-              Meal Plan for {relativeDay(currentSelectedDate, today)} ({formatDay(currentSelectedDate)})
+            <h3 className="text-xs font-medium text-ink-primary flex items-center gap-2">
+              <span>Meal Plan for {relativeDay(currentSelectedDate, today)} ({formatDay(currentSelectedDate)})</span>
+              {selectedPlanDayOffset > 0 && weeklySmoothingEnabled && weeklyRebalanceInfo.isSignificant && (
+                <span className="text-[10px] font-medium px-2 py-0.5 bg-brand-tint text-brand rounded border border-[#D5E6D2]">
+                  Smoothed Target
+                </span>
+              )}
             </h3>
-            <p className="text-[11px] text-ink-muted">
-              Target: {activeTargets.calories} kcal · Planned: {dayCalories} kcal ({dayProtein}g protein)
+            <p className="text-[11px] text-ink-muted mt-0.5">
+              Target: <strong className="font-semibold text-ink-primary">{effectiveDayTarget} kcal</strong>
+              {selectedPlanDayOffset > 0 && weeklySmoothingEnabled && weeklyRebalanceInfo.isSignificant && (
+                <span> ({weeklyRebalanceInfo.dailyAdjustment > 0 ? `+${weeklyRebalanceInfo.dailyAdjustment}` : weeklyRebalanceInfo.dailyAdjustment} kcal/day adjustment)</span>
+              )}
+              {" "}· Planned: <strong className="font-semibold text-brand">{dayCalories} kcal</strong> ({dayProtein}g protein)
             </p>
           </div>
 
@@ -226,6 +319,9 @@ export function MealPlanView() {
           {(["breakfast", "lunch", "snack", "dinner"] as MealType[]).map((slotType) => {
             const meal = selectedMeals.find((m) => m.meal_type === slotType);
             const slotTitle = slotType.charAt(0).toUpperCase() + slotType.slice(1);
+            const isAiAdapted = meal?.source === "agent";
+            const isCustom = meal?.source === "custom";
+
             return (
               <div key={slotType} className="py-3 first:pt-0 last:pb-0 flex items-start justify-between text-xs">
                 <div className="space-y-0.5">
@@ -234,8 +330,14 @@ export function MealPlanView() {
                     <span className="text-[10px] text-ink-muted px-1.5 py-0.2 bg-surface-subtle rounded uppercase">
                       {slotType}
                     </span>
-                    {meal?.source === "custom" && (
-                      <span className="text-[10px] px-1.5 py-0.2 bg-brand-tint text-brand rounded font-medium">
+                    {isAiAdapted && (
+                      <span className="text-[10px] px-2 py-0.5 bg-brand-tint text-brand rounded font-medium border border-[#D5E6D2] flex items-center gap-1">
+                        <Sparkles className="w-2.5 h-2.5" />
+                        AI Adapted
+                      </span>
+                    )}
+                    {isCustom && (
+                      <span className="text-[10px] px-2 py-0.5 bg-surface-subtle text-ink-primary rounded font-medium border border-border">
                         Custom
                       </span>
                     )}
