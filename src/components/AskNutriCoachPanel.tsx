@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { ArrowUp, Check, ChevronRight, MessageSquare, Plus, RefreshCw, Sparkles, Utensils, X } from "lucide-react";
 import { addDays, formatDay } from "@/lib/dates";
 import { useNutriCoach } from "./NutriCoachContext";
-import type { MealSnapshot, MealType } from "@/lib/types";
+import type { MealSnapshot, MealType, AgentResponseContract } from "@/lib/types";
 
 interface MealPlanActionCardData {
   icon: string;
@@ -84,11 +84,19 @@ interface AssistantMessage {
   id: string;
   sender: "user" | "agent";
   text: string;
+  intent?: string;
+  action?: string;
+  suggestedFollowUps?: string[];
   mealPlanCard?: MealPlanActionCardData;
   alternativesCard?: AlternativesCardData;
   dayClarification?: DayClarificationData;
   exclusionPrompt?: ExclusionPromptData;
   cuisineCard?: CuisineCardData;
+  coachAlert?: {
+    reason: string;
+    priority: "low" | "medium" | "high";
+    recommendedAction: string;
+  };
   pendingConfirmation?: {
     mealName: string;
     calories: number;
@@ -908,6 +916,116 @@ export function AskNutriCoachPanel() {
     if (!promptText) setInput("");
     setLoading(true);
 
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: text,
+          userProfile: activeProfile,
+          targets: activeTargets,
+          todayPlannedMeals: state.plannedMeals[state.activeMemberId] || [],
+          todayMealLogs,
+          recentHistory: aiMessages.slice(-4),
+        }),
+      });
+
+      if (res.ok) {
+        const data: AgentResponseContract = await res.json();
+
+        let mealPlanCard: MealPlanActionCardData | undefined;
+        let alternativesCard: AlternativesCardData | undefined;
+        let dayClarification: DayClarificationData | undefined;
+        let exclusionPrompt: ExclusionPromptData | undefined;
+        let cuisineCard: CuisineCardData | undefined;
+        let pendingConfirmation: AssistantMessage["pendingConfirmation"];
+
+        // If proposed meal requires user confirmation
+        if (data.proposedMeal && data.requiresConfirmation) {
+          const slot = (data.targetSlot || "dinner") as MealType;
+          const targetDay = data.targetDay || "today";
+          const dayOffset = targetDay === "tomorrow" ? 1 : 0;
+          const targetDate = addDays(state.today, dayOffset);
+
+          mealPlanCard = {
+            icon: "🍽️",
+            foodName: data.proposedMeal.title,
+            targetDayLabel: targetDay === "tomorrow" ? "Tomorrow" : "Today",
+            targetDate,
+            dayOffset,
+            targetSlot: slot,
+            calories: data.proposedMeal.calories,
+            protein: data.proposedMeal.protein,
+            carbs: data.proposedMeal.carbs,
+            fat: data.proposedMeal.fat,
+            subtext: data.remainingTargetsNote || "Dinner will be automatically adjusted to keep targets balanced.",
+            confirmed: false,
+          };
+        }
+
+        // If mutation is approved and verified by application
+        if (data.shouldMutatePlan && data.proposedMeal && data.targetSlot) {
+          const targetDay = data.targetDay || "today";
+          const dayOffset = targetDay === "tomorrow" ? 1 : 0;
+          const targetDate = addDays(state.today, dayOffset);
+
+          if (data.action === "log_meal") {
+            logMeal({
+              mealName: data.proposedMeal.title,
+              mealType: data.targetSlot as MealType,
+              notes: "Logged via Ask NutriCoach",
+            });
+          } else {
+            replaceMealSlot({
+              mealType: data.targetSlot as MealType,
+              date: targetDate,
+              meal: {
+                meal_name: data.proposedMeal.title,
+                calories: data.proposedMeal.calories,
+                protein: data.proposedMeal.protein,
+                carbs: data.proposedMeal.carbs,
+                fat: data.proposedMeal.fat,
+                ingredients: data.proposedMeal.ingredients || [],
+                tags: [data.targetSlot, "agent"],
+              },
+              source: "agent",
+              rebalanceDinner: data.targetSlot !== "dinner",
+            });
+          }
+        }
+
+        const agentReplyMsg: AssistantMessage = {
+          id: `ai-${Date.now()}`,
+          sender: "agent",
+          text: data.replyText,
+          intent: data.intent,
+          action: data.action,
+          suggestedFollowUps: data.suggestedFollowUps,
+          mealPlanCard,
+          alternativesCard,
+          dayClarification,
+          exclusionPrompt,
+          cuisineCard,
+          coachAlert: data.coachFollowup
+            ? {
+                reason: data.coachFollowup.reason,
+                priority: data.coachFollowup.priority,
+                recommendedAction: data.coachFollowup.recommendedAction,
+              }
+            : undefined,
+          pendingConfirmation,
+          time: "Just now",
+        };
+
+        setAiMessages((prev) => [...prev, agentReplyMsg]);
+        setLoading(false);
+        return;
+      }
+    } catch (err) {
+      console.warn("API chat route unavailable, executing deterministic fallback:", err);
+    }
+
+    // Deterministic Fallback if network / API unavailable
     setTimeout(() => {
       let reply = "";
       let mealPlanCard: MealPlanActionCardData | undefined;
@@ -920,16 +1038,18 @@ export function AskNutriCoachPanel() {
       const intent = parseIntent(text);
       const slotTitle = intent.targetSlot.charAt(0).toUpperCase() + intent.targetSlot.slice(1);
 
-      // Check Profile Exclusion & Allergy Guardrails (unless full cuisine plan requested)
-      const exclusionMatch = intent.intentType !== "cuisine_plan" ? findExcludedMatch(text, activeProfile.disliked_foods, activeProfile.allergies) : null;
+      // Check Profile Exclusion & Allergy Guardrails
+      const exclusionMatch =
+        intent.intentType !== "cuisine_plan"
+          ? findExcludedMatch(text, activeProfile.disliked_foods, activeProfile.allergies)
+          : null;
 
-      // Branch 0: Profile Restriction / Allergy Guardrail Triggered
       if (exclusionMatch) {
         const cleanTerm = exclusionMatch.term.replace(/^no\s+/i, "");
         if (exclusionMatch.isAllergy) {
-          reply = `⚠️ Allergy Guardrail: Your profile is set to exclude ${exclusionMatch.term}. Eating this may cause adverse reactions. Would you like to view safe allergy-free alternatives (like Greek yogurt, pumpkin seeds, or fruit) instead?`;
+          reply = `Allergy Guardrail: Your profile is set to exclude ${exclusionMatch.term}. Eating this may cause adverse reactions. Would you like to view safe allergy-free alternatives instead?`;
         } else {
-          reply = `Your profile is set to exclude ${cleanTerm}. Would you like to temporarily allow it, or choose a fish/lean beef alternative instead?`;
+          reply = `Your profile is set to exclude ${cleanTerm}. Would you like to temporarily allow it, or choose a fish or lean beef alternative instead?`;
         }
         exclusionPrompt = {
           term: exclusionMatch.term,
@@ -941,9 +1061,7 @@ export function AskNutriCoachPanel() {
           matchedFood: intent.matchedFood,
           safeAlternativeDesc: exclusionMatch.isAllergy ? "Safe allergy-free alternative" : "Fish or lean beef alternative",
         };
-      }
-      // Branch A: Ambiguous day on a single meal swap or food request -> Ask user with [ Today ] [ Tomorrow ] chips
-      else if (intent.isAmbiguousDay && (intent.intentType === "replace_slot" || intent.intentType === "specific_food")) {
+      } else if (intent.isAmbiguousDay && (intent.intentType === "replace_slot" || intent.intentType === "specific_food")) {
         reply = `Would you like to apply this to Today's ${slotTitle.toLowerCase()} or Tomorrow's ${slotTitle.toLowerCase()}?`;
         dayClarification = {
           originalPrompt: text,
@@ -952,9 +1070,11 @@ export function AskNutriCoachPanel() {
           matchedFood: intent.matchedFood,
           avoid: intent.avoid,
         };
-      }
-      // Branch B: Eaten-Meal Guard for "Today"
-      else if (intent.dayOffset === 0 && todayMealLogs.some((l) => l.meal_type === intent.targetSlot) && (intent.intentType === "replace_slot" || intent.intentType === "specific_food")) {
+      } else if (
+        intent.dayOffset === 0 &&
+        todayMealLogs.some((l) => l.meal_type === intent.targetSlot) &&
+        (intent.intentType === "replace_slot" || intent.intentType === "specific_food")
+      ) {
         const eatenLog = todayMealLogs.find((l) => l.meal_type === intent.targetSlot);
         reply = `Today's ${slotTitle} (${eatenLog?.meal_name || "Meal"}) has already been logged as eaten and cannot be replaced. Would you like to log this as an additional snack, or adjust your upcoming dinner to balance out?`;
         pendingConfirmation = intent.matchedFood
@@ -969,9 +1089,7 @@ export function AskNutriCoachPanel() {
               isExtraSnack: true,
             }
           : undefined;
-      }
-      // Branch C: Dynamic Cuisine Re-planning Engine (e.g. Italian, Egyptian, Mediterranean)
-      else if (intent.intentType === "cuisine_plan" && intent.matchedCuisine) {
+      } else if (intent.intentType === "cuisine_plan" && intent.matchedCuisine) {
         const template = intent.matchedCuisine;
         const targetDate = intent.targetDate;
         const effectiveTargetCals =
@@ -982,7 +1100,6 @@ export function AskNutriCoachPanel() {
         const baseSumCals = template.meals.reduce((sum, m) => sum + m.calories, 0);
         const ratio = effectiveTargetCals / (baseSumCals || 1);
 
-        // Scale 4 meals proportionally
         const scaledMeals = template.meals.map((m, idx) => {
           if (idx < 3) {
             return {
@@ -996,7 +1113,6 @@ export function AskNutriCoachPanel() {
               tags: m.tags,
             };
           }
-          // Dinner balances rounding to exactly match effectiveTargetCals
           const prevCals =
             Math.round(template.meals[0].calories * ratio) +
             Math.round(template.meals[1].calories * ratio) +
@@ -1018,7 +1134,6 @@ export function AskNutriCoachPanel() {
         const totalScaledCals = scaledMeals.reduce((s, m) => s + m.calories, 0);
         const totalScaledProtein = scaledMeals.reduce((s, m) => s + m.protein, 0);
 
-        // Mutate the 4 meal slots for the target day
         for (const m of scaledMeals) {
           replaceMealSlot({
             mealType: m.slot,
@@ -1053,9 +1168,7 @@ export function AskNutriCoachPanel() {
             protein: m.protein,
           })),
         };
-      }
-      // Branch D: Replace slot -> Offer 3 curated alternatives with [ Review Alternatives ] modal respecting exclusions
-      else if (intent.intentType === "replace_slot") {
+      } else if (intent.intentType === "replace_slot") {
         const alternatives = getSlotAlternatives(
           intent.targetSlot,
           intent.avoid,
@@ -1073,9 +1186,7 @@ export function AskNutriCoachPanel() {
           targetSlot: intent.targetSlot,
           options: alternatives,
         };
-      }
-      // Branch E: Specific food item requested (e.g. ice cream, Greek yogurt, salmon)
-      else if (intent.intentType === "specific_food" && intent.matchedFood) {
+      } else if (intent.intentType === "specific_food" && intent.matchedFood) {
         const food = intent.matchedFood;
         reply = `I've prepared ${intent.dayLabel}'s ${slotTitle} with ${food.name} (~${food.calories} kcal). Dinner will be automatically adjusted to keep your daily target perfectly balanced.`;
 
@@ -1093,14 +1204,10 @@ export function AskNutriCoachPanel() {
           subtext: `Dinner adjusted to keep ${intent.dayLabel.toLowerCase()} balanced.`,
           confirmed: false,
         };
-      }
-      // Branch F: Log Meal (Explicit food eaten)
-      else if (intent.intentType === "log_meal") {
+      } else if (intent.intentType === "log_meal") {
         logMeal({ mealName: "Logged Meal", mealType: "lunch", notes: "Logged via Ask NutriCoach" });
         reply = `I've logged that for your lunch and rebalanced your remaining daily dinner targets accordingly.`;
-      }
-      // Branch G: General inquiry
-      else {
+      } else {
         reply = `You have ${todayRemainingMacros.calories} kcal and ${todayRemainingMacros.protein}g protein remaining today. Let me know if you'd like to replace tomorrow's breakfast, add a snack, or plan upcoming meals!`;
       }
 
@@ -1634,6 +1741,32 @@ export function AskNutriCoachPanel() {
                       <ChevronRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
+                </div>
+              )}
+
+              {/* Quick Suggested Follow-up reply buttons */}
+              {m.suggestedFollowUps && m.suggestedFollowUps.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {m.suggestedFollowUps.map((chip, chipIdx) => (
+                    <button
+                      key={chipIdx}
+                      onClick={() => handleSend(chip)}
+                      className="text-[11px] bg-surface hover:bg-surface-subtle text-ink-primary hover:text-brand px-2.5 py-1 rounded-md border border-border hover:border-brand/40 transition-colors font-medium shadow-hairline text-left"
+                    >
+                      {chip}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Coach Alert Notice */}
+              {m.coachAlert && (
+                <div className="bg-surface rounded-md border border-brand/40 p-2.5 space-y-1 text-xs bg-brand-tint/30 shadow-hairline">
+                  <div className="flex items-center gap-1.5 font-semibold text-brand text-[11px]">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Coach Action Drafted ({m.coachAlert.priority} priority)</span>
+                  </div>
+                  <p className="text-[10px] text-ink-muted leading-tight">{m.coachAlert.reason}</p>
                 </div>
               )}
 

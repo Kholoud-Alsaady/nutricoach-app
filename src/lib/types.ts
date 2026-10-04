@@ -220,3 +220,75 @@ export interface ModelPricing {
   input_usd_per_million: number;
   output_usd_per_million: number;
 }
+
+export type AgentIntent =
+  | "meal_replacement"
+  | "meal_addition"
+  | "meal_logging"
+  | "meal_adaptation"
+  | "preference_change"
+  | "nutrition_question"
+  | "progress_question"
+  | "plan_question"
+  | "safety_redirect"
+  | "general_conversation"
+  | "unclear";
+
+export type AgentActionType =
+  | "none"
+  | "suggest_meal"
+  | "replace_meal"
+  | "adapt_meal"
+  | "log_meal"
+  | "update_preference"
+  | "adapt_day"
+  | "adapt_week"
+  | "coach_followup";
+
+export interface AgentProposedMeal {
+  title: string;
+  ingredients: string[];
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  slot?: MealType;
+}
+
+export interface AgentRemainingTargets {
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+}
+
+export interface AgentPreferenceUpdate {
+  field: "disliked_foods" | "allergies" | "dietary_style";
+  value: string;
+}
+
+export interface AgentCoachFollowup {
+  reason: string;
+  priority: "low" | "medium" | "high";
+  recommendedAction: string;
+}
+
+export interface AgentResponseContract {
+  replyText: string;
+  intent: AgentIntent;
+  action: AgentActionType;
+  shouldMutatePlan: boolean;
+  requiresConfirmation: boolean;
+  targetDay?: "today" | "tomorrow" | string;
+  targetSlot?: "breakfast" | "lunch" | "snack" | "dinner" | string;
+  suggestedFollowUps?: string[];
+  proposedMeal?: AgentProposedMeal | null;
+  remainingTargets?: AgentRemainingTargets | null;
+  remainingTargetsNote?: string | null;
+  preferenceUpdate?: AgentPreferenceUpdate | null;
+  needsCoachReview?: boolean;
+  coachFollowup?: AgentCoachFollowup | null;
+  updatedMeals?: AgentProposedMeal[] | null;
+  error?: string;
+}
+
