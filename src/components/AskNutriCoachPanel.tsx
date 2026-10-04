@@ -40,6 +40,17 @@ interface DayClarificationData {
   avoid?: string[];
 }
 
+interface ExclusionPromptData {
+  term: string;
+  slot: MealType;
+  dayOffset: number;
+  dayLabel: string;
+  targetDate: string;
+  isAllergy: boolean;
+  matchedFood?: KnownFood | null;
+  safeAlternativeDesc: string;
+}
+
 interface AssistantMessage {
   id: string;
   sender: "user" | "agent";
@@ -47,6 +58,7 @@ interface AssistantMessage {
   mealPlanCard?: MealPlanActionCardData;
   alternativesCard?: AlternativesCardData;
   dayClarification?: DayClarificationData;
+  exclusionPrompt?: ExclusionPromptData;
   pendingConfirmation?: {
     mealName: string;
     calories: number;
@@ -265,10 +277,34 @@ const KNOWN_FOODS: KnownFood[] = [
   },
 ];
 
-// Curated Alternatives Generator for each meal slot
-function getSlotAlternatives(slot: MealType, avoid: string[] = []): MealSnapshot[] {
-  if (slot === "breakfast") {
-    return [
+// Curated Alternatives Generator for each meal slot respecting exclusions & allergies
+function getSlotAlternatives(
+  slot: MealType,
+  avoid: string[] = [],
+  profileDislikes: string[] = [],
+  profileAllergies: string[] = []
+): MealSnapshot[] {
+  const allAvoid = [...avoid, ...profileDislikes, ...profileAllergies].map((s) => s.toLowerCase());
+
+  const isBlocked = (item: MealSnapshot) => {
+    const text = (item.meal_name + " " + item.ingredients.join(" ") + " " + item.tags.join(" ")).toLowerCase();
+    return allAvoid.some((a) => {
+      const clean = a.replace(/^(no\s+|allergy:?\s*)/i, "").trim();
+      if (!clean) return false;
+      if (clean.includes("chicken") && text.includes("chicken")) return true;
+      if (clean.includes("peanut") && (text.includes("peanut") || text.includes("nuts") || text.includes("almond"))) return true;
+      if (clean.includes("dairy") && (text.includes("dairy") || text.includes("cheese") || text.includes("yogurt") || text.includes("whey") || text.includes("milk"))) return true;
+      if (clean.includes("red meat") && (text.includes("beef") || text.includes("steak") || text.includes("kofta") || text.includes("burger"))) return true;
+      if (clean.includes("gluten") && (text.includes("pasta") || text.includes("bread") || text.includes("toast") || text.includes("flour") || text.includes("wheat") || text.includes("freekeh"))) return true;
+      if (clean.includes("shellfish") && (text.includes("shellfish") || text.includes("shrimp") || text.includes("prawn"))) return true;
+      if (clean.includes("vegetarian") && !item.tags.includes("vegetarian")) return true;
+      if (clean.includes("pescatarian") && !item.tags.includes("pescatarian") && !item.tags.includes("vegetarian") && !item.tags.includes("fish")) return true;
+      return text.includes(clean);
+    });
+  };
+
+  const pool: Record<MealType, MealSnapshot[]> = {
+    breakfast: [
       {
         meal_name: "Greek yogurt, oats & honey bowl",
         calories: 420,
@@ -296,11 +332,26 @@ function getSlotAlternatives(slot: MealType, avoid: string[] = []): MealSnapshot
         ingredients: ["egg whites", "1 egg", "light cheese", "wholewheat toast", "spinach"],
         tags: ["eggs", "lean", "high-protein"],
       },
-    ];
-  }
-
-  if (slot === "lunch") {
-    const list: MealSnapshot[] = [
+      {
+        meal_name: "Areesh cheese plate with tomatoes & olive oil",
+        calories: 350,
+        protein: 26,
+        carbs: 30,
+        fat: 12,
+        ingredients: ["areesh cheese", "tomatoes", "cucumbers", "olive oil", "baladi bread"],
+        tags: ["egyptian", "dairy", "vegetarian"],
+      },
+      {
+        meal_name: "Overnight chia & oat bowl with fresh berries",
+        calories: 360,
+        protein: 20,
+        carbs: 50,
+        fat: 8,
+        ingredients: ["oats", "chia seeds", "berries", "plant milk", "cinnamon"],
+        tags: ["vegan", "dairy-free", "high-fiber"],
+      },
+    ],
+    lunch: [
       {
         meal_name: "Grilled chicken breast with jasmine rice & salad",
         calories: 520,
@@ -309,6 +360,15 @@ function getSlotAlternatives(slot: MealType, avoid: string[] = []): MealSnapshot
         fat: 12,
         ingredients: ["chicken breast", "jasmine rice", "green salad", "olive oil"],
         tags: ["chicken", "lean", "high-protein"],
+      },
+      {
+        meal_name: "Grilled tilapia (bolti) with rice & salad",
+        calories: 480,
+        protein: 44,
+        carbs: 55,
+        fat: 10,
+        ingredients: ["tilapia", "sayadeya rice", "salad", "lemon"],
+        tags: ["fish", "egyptian", "pescatarian"],
       },
       {
         meal_name: "Mediterranean tuna pasta salad",
@@ -328,28 +388,17 @@ function getSlotAlternatives(slot: MealType, avoid: string[] = []): MealSnapshot
         ingredients: ["lean beef kofta", "freekeh", "tahini", "salad"],
         tags: ["beef", "egyptian", "high-protein"],
       },
-    ];
-
-    if (avoid.includes("chicken")) {
-      return list
-        .filter((m) => !m.meal_name.toLowerCase().includes("chicken"))
-        .concat([
-          {
-            meal_name: "Grilled tilapia (bolti) with rice & salad",
-            calories: 480,
-            protein: 44,
-            carbs: 55,
-            fat: 10,
-            ingredients: ["tilapia", "sayadeya rice", "salad", "lemon"],
-            tags: ["fish", "egyptian"],
-          },
-        ]);
-    }
-    return list;
-  }
-
-  if (slot === "dinner") {
-    const list: MealSnapshot[] = [
+      {
+        meal_name: "Tofu & vegetable stir-fry with jasmine rice",
+        calories: 460,
+        protein: 32,
+        carbs: 56,
+        fat: 12,
+        ingredients: ["firm tofu", "bell peppers", "edamame", "jasmine rice", "sesame oil"],
+        tags: ["vegan", "plant-protein", "dairy-free"],
+      },
+    ],
+    dinner: [
       {
         meal_name: "Seared salmon with sweet potato & steamed broccoli",
         calories: 530,
@@ -357,7 +406,7 @@ function getSlotAlternatives(slot: MealType, avoid: string[] = []): MealSnapshot
         carbs: 45,
         fat: 22,
         ingredients: ["salmon fillet", "sweet potato", "broccoli", "lemon"],
-        tags: ["fish", "salmon", "omega-3"],
+        tags: ["fish", "salmon", "omega-3", "pescatarian"],
       },
       {
         meal_name: "Grilled sea bass with brown rice & tahini",
@@ -369,57 +418,123 @@ function getSlotAlternatives(slot: MealType, avoid: string[] = []): MealSnapshot
         tags: ["fish", "pescatarian", "egyptian"],
       },
       {
+        meal_name: "Lean beef stir-fry with jasmine rice & broccoli",
+        calories: 510,
+        protein: 42,
+        carbs: 48,
+        fat: 15,
+        ingredients: ["lean beef strips", "jasmine rice", "broccoli", "soy sauce"],
+        tags: ["beef", "high-protein"],
+      },
+      {
         meal_name: "Tofu & vegetable stir-fry with jasmine rice",
         calories: 460,
         protein: 32,
         carbs: 56,
         fat: 12,
         ingredients: ["firm tofu", "bell peppers", "edamame", "jasmine rice", "sesame oil"],
-        tags: ["vegan", "plant-protein"],
+        tags: ["vegan", "plant-protein", "dairy-free"],
       },
-    ];
+    ],
+    snack: [
+      {
+        meal_name: "Greek yogurt with mixed berries & chia",
+        calories: 210,
+        protein: 20,
+        carbs: 24,
+        fat: 4,
+        ingredients: ["greek yogurt", "blueberries", "chia seeds"],
+        tags: ["dairy", "snack", "nut-free"],
+      },
+      {
+        meal_name: "Fresh seasonal fruit bowl with pumpkin seeds",
+        calories: 180,
+        protein: 6,
+        carbs: 32,
+        fat: 5,
+        ingredients: ["apple", "strawberries", "banana", "pumpkin seeds"],
+        tags: ["snack", "nut-free", "dairy-free", "vegan"],
+      },
+      {
+        meal_name: "Hard boiled eggs & sliced cucumber",
+        calories: 160,
+        protein: 14,
+        carbs: 4,
+        fat: 10,
+        ingredients: ["2 eggs", "cucumber", "sea salt"],
+        tags: ["snack", "eggs", "keto-friendly", "dairy-free", "nut-free"],
+      },
+      {
+        meal_name: "Whey isolate protein shake with banana",
+        calories: 240,
+        protein: 30,
+        carbs: 22,
+        fat: 3,
+        ingredients: ["whey protein", "banana", "water"],
+        tags: ["snack", "post-workout", "nut-free"],
+      },
+      {
+        meal_name: "Double chocolate protein bar",
+        calories: 220,
+        protein: 20,
+        carbs: 22,
+        fat: 6,
+        ingredients: ["whey isolate", "cocoa", "almonds"],
+        tags: ["snack", "high-protein"],
+      },
+    ],
+  };
 
-    if (avoid.includes("chicken")) {
-      return list;
+  const slotCandidates = pool[slot] || pool.snack;
+  const filtered = slotCandidates.filter((m) => !isBlocked(m));
+  return filtered.length >= 2 ? filtered.slice(0, 3) : slotCandidates.slice(0, 3);
+}
+
+function findExcludedMatch(
+  prompt: string,
+  profileDislikes: string[] = [],
+  profileAllergies: string[] = []
+): { isExcluded: boolean; term: string; isAllergy: boolean } | null {
+  const p = prompt.toLowerCase();
+
+  // 1. Check allergies first (critical guardrails)
+  for (const allergy of profileAllergies) {
+    const aLower = allergy.toLowerCase();
+    const cleanAllergy = aLower.replace(/allergy|intolerance|\/|celiac/gi, "").trim();
+    if (
+      (cleanAllergy && p.includes(cleanAllergy)) ||
+      (aLower.includes("peanut") && (p.includes("peanut") || p.includes("nuts") || p.includes("nut"))) ||
+      (aLower.includes("lactose") && (p.includes("dairy") || p.includes("lactose") || p.includes("milk") || p.includes("cheese") || p.includes("yogurt"))) ||
+      (aLower.includes("gluten") && (p.includes("gluten") || p.includes("bread") || p.includes("pasta") || p.includes("wheat") || p.includes("toast"))) ||
+      (aLower.includes("shellfish") && (p.includes("shellfish") || p.includes("shrimp") || p.includes("prawn")))
+    ) {
+      return { isExcluded: true, term: allergy, isAllergy: true };
     }
-    return list;
   }
 
-  // Snack
-  return [
-    {
-      meal_name: "Double chocolate protein bar",
-      calories: 220,
-      protein: 20,
-      carbs: 22,
-      fat: 6,
-      ingredients: ["whey isolate", "cocoa", "almonds"],
-      tags: ["snack", "high-protein"],
-    },
-    {
-      meal_name: "Greek yogurt with mixed berries & chia",
-      calories: 210,
-      protein: 20,
-      carbs: 24,
-      fat: 4,
-      ingredients: ["greek yogurt", "blueberries", "chia seeds"],
-      tags: ["dairy", "snack"],
-    },
-    {
-      meal_name: "Whey isolate protein shake with banana",
-      calories: 240,
-      protein: 30,
-      carbs: 22,
-      fat: 3,
-      ingredients: ["whey protein", "banana", "water"],
-      tags: ["snack", "post-workout"],
-    },
-  ];
+  // 2. Check disliked foods / exclusions
+  for (const dislike of profileDislikes) {
+    const dLower = dislike.toLowerCase();
+    const cleanDislike = dLower.replace(/^no\s+/i, "").trim();
+    if (
+      (cleanDislike && p.includes(cleanDislike)) ||
+      (dLower.includes("chicken") && (p.includes("chicken") || p.includes("poultry") || p.includes("wings"))) ||
+      (dLower.includes("red meat") && (p.includes("red meat") || p.includes("beef") || p.includes("steak") || p.includes("kofta") || p.includes("burger"))) ||
+      (dLower.includes("dairy") && (p.includes("dairy") || p.includes("milk") || p.includes("cheese") || p.includes("yogurt"))) ||
+      (dLower.includes("pescatarian") && (p.includes("chicken") || p.includes("beef") || p.includes("meat"))) ||
+      (dLower.includes("vegetarian") && (p.includes("chicken") || p.includes("beef") || p.includes("meat") || p.includes("fish") || p.includes("seafood")))
+    ) {
+      return { isExcluded: true, term: dislike, isAllergy: false };
+    }
+  }
+
+  return null;
 }
 
 export function AskNutriCoachPanel() {
   const {
     state,
+    activeProfile,
     confirmAddMeal,
     replaceMealSlot,
     logMeal,
@@ -563,13 +678,36 @@ export function AskNutriCoachPanel() {
       let mealPlanCard: MealPlanActionCardData | undefined;
       let alternativesCard: AlternativesCardData | undefined;
       let dayClarification: DayClarificationData | undefined;
+      let exclusionPrompt: ExclusionPromptData | undefined;
       let pendingConfirmation: AssistantMessage["pendingConfirmation"];
 
       const intent = parseIntent(text);
       const slotTitle = intent.targetSlot.charAt(0).toUpperCase() + intent.targetSlot.slice(1);
 
+      // Check Profile Exclusion & Allergy Guardrails
+      const exclusionMatch = findExcludedMatch(text, activeProfile.disliked_foods, activeProfile.allergies);
+
+      // Branch 0: Profile Restriction / Allergy Guardrail Triggered (e.g. "Can I eat chicken tonight?")
+      if (exclusionMatch) {
+        const cleanTerm = exclusionMatch.term.replace(/^no\s+/i, "");
+        if (exclusionMatch.isAllergy) {
+          reply = `⚠️ Allergy Guardrail: Your profile is set to exclude ${exclusionMatch.term}. Eating this may cause adverse reactions. Would you like to view safe allergy-free alternatives (like Greek yogurt, pumpkin seeds, or fruit) instead?`;
+        } else {
+          reply = `Your profile is set to exclude ${cleanTerm}. Would you like to temporarily allow it, or choose a fish/lean beef alternative instead?`;
+        }
+        exclusionPrompt = {
+          term: exclusionMatch.term,
+          slot: intent.targetSlot,
+          dayOffset: intent.dayOffset,
+          dayLabel: intent.dayLabel,
+          targetDate: intent.targetDate,
+          isAllergy: exclusionMatch.isAllergy,
+          matchedFood: intent.matchedFood,
+          safeAlternativeDesc: exclusionMatch.isAllergy ? "Safe allergy-free alternative" : "Fish or lean beef alternative",
+        };
+      }
       // Branch A: Ambiguous day on a meal swap or food request -> Ask user with [ Today ] [ Tomorrow ] chips
-      if (intent.isAmbiguousDay && (intent.intentType === "replace_slot" || intent.intentType === "specific_food")) {
+      else if (intent.isAmbiguousDay && (intent.intentType === "replace_slot" || intent.intentType === "specific_food")) {
         reply = `Would you like to apply this to Today's ${slotTitle.toLowerCase()} or Tomorrow's ${slotTitle.toLowerCase()}?`;
         dayClarification = {
           originalPrompt: text,
@@ -596,9 +734,14 @@ export function AskNutriCoachPanel() {
             }
           : undefined;
       }
-      // Branch C: Replace slot -> Offer 3 curated alternatives with [ Review Alternatives ] modal
+      // Branch C: Replace slot -> Offer 3 curated alternatives with [ Review Alternatives ] modal respecting exclusions
       else if (intent.intentType === "replace_slot") {
-        const alternatives = getSlotAlternatives(intent.targetSlot, intent.avoid);
+        const alternatives = getSlotAlternatives(
+          intent.targetSlot,
+          intent.avoid,
+          activeProfile.disliked_foods,
+          activeProfile.allergies
+        );
         reply = `I found 3 high-protein alternatives for ${intent.dayLabel}'s ${slotTitle.toLowerCase()}${intent.avoid.length ? ` without ${intent.avoid.join(", ")}` : ""}. Review and choose your favorite below.`;
 
         alternativesCard = {
@@ -663,6 +806,7 @@ export function AskNutriCoachPanel() {
         mealPlanCard,
         alternativesCard,
         dayClarification,
+        exclusionPrompt,
         pendingConfirmation,
         time: "Just now",
       };
@@ -740,7 +884,12 @@ export function AskNutriCoachPanel() {
     }
 
     // If replace slot -> generate alternatives
-    const alternatives = getSlotAlternatives(data.targetSlot, data.avoid);
+    const alternatives = getSlotAlternatives(
+      data.targetSlot,
+      data.avoid,
+      activeProfile.disliked_foods,
+      activeProfile.allergies
+    );
     const agentMsg: AssistantMessage = {
       id: `ai-alt-${Date.now()}`,
       sender: "agent",
@@ -752,6 +901,92 @@ export function AskNutriCoachPanel() {
         targetDate,
         dayOffset,
         targetSlot: data.targetSlot,
+        options: alternatives,
+      },
+      time: "Just now",
+    };
+
+    setAiMessages((prev) => [...prev, userMsg, agentMsg]);
+  };
+
+  // Handle Exclusion Prompt Choices
+  const handleAllowExcludedOnce = (data: ExclusionPromptData) => {
+    const slotTitle = data.slot.charAt(0).toUpperCase() + data.slot.slice(1);
+    const cleanTerm = data.term.replace(/^no\s+/i, "");
+
+    const userMsg: AssistantMessage = {
+      id: `usr-allow-${Date.now()}`,
+      sender: "user",
+      text: `Allow ${cleanTerm} for ${data.dayLabel.toLowerCase()}'s ${data.slot}`,
+      time: "Just now",
+    };
+
+    const food = data.matchedFood || {
+      name: `Prepared ${cleanTerm} dish`,
+      calories: 520,
+      protein: 45,
+      carbs: 50,
+      fat: 12,
+      icon: "🍽️",
+      keywords: [],
+      defaultSlot: data.slot,
+      ingredients: [cleanTerm.toLowerCase()],
+      tags: [data.slot, "custom"],
+    };
+
+    const agentMsg: AssistantMessage = {
+      id: `ai-allow-${Date.now()}`,
+      sender: "agent",
+      text: `Understood! Allowing ${cleanTerm} as a temporary exception for ${data.dayLabel}'s ${slotTitle.toLowerCase()}. Here is your calibrated meal card:`,
+      mealPlanCard: {
+        icon: food.icon,
+        foodName: food.name,
+        targetDayLabel: data.dayLabel,
+        targetDate: data.targetDate,
+        dayOffset: data.dayOffset,
+        targetSlot: data.slot,
+        calories: food.calories,
+        protein: food.protein,
+        carbs: food.carbs,
+        fat: food.fat,
+        subtext: `One-time exception approved. Dinner adjusted to keep ${data.dayLabel.toLowerCase()} on target.`,
+        confirmed: false,
+      },
+      time: "Just now",
+    };
+
+    setAiMessages((prev) => [...prev, userMsg, agentMsg]);
+  };
+
+  const handleViewSafeAlternatives = (data: ExclusionPromptData) => {
+    const slotTitle = data.slot.charAt(0).toUpperCase() + data.slot.slice(1);
+    const cleanTerm = data.term.replace(/^no\s+/i, "");
+
+    const userMsg: AssistantMessage = {
+      id: `usr-safe-${Date.now()}`,
+      sender: "user",
+      text: `Choose safe alternatives for ${data.dayLabel.toLowerCase()}'s ${data.slot}`,
+      time: "Just now",
+    };
+
+    const alternatives = getSlotAlternatives(
+      data.slot,
+      [cleanTerm],
+      activeProfile.disliked_foods,
+      activeProfile.allergies
+    );
+
+    const agentMsg: AssistantMessage = {
+      id: `ai-safe-${Date.now()}`,
+      sender: "agent",
+      text: `Here are 3 verified high-protein alternatives for ${data.dayLabel}'s ${slotTitle.toLowerCase()} that strictly exclude ${cleanTerm}:`,
+      alternativesCard: {
+        title: `${data.dayLabel}'s Safe ${slotTitle} Alternatives`,
+        details: `3 compliant options (${alternatives[0].calories}-${alternatives[1].calories} kcal) excluding ${cleanTerm}`,
+        targetDayLabel: data.dayLabel,
+        targetDate: data.targetDate,
+        dayOffset: data.dayOffset,
+        targetSlot: data.slot,
         options: alternatives,
       },
       time: "Just now",
@@ -923,6 +1158,37 @@ export function AskNutriCoachPanel() {
               </div>
 
               <p className="text-xs text-ink-secondary leading-relaxed">{m.text}</p>
+
+              {/* Exclusion & Allergy Guardrail Warning Card */}
+              {m.exclusionPrompt && (
+                <div className="bg-surface rounded-md border border-[#FCA5A5]/80 p-3 space-y-2 mt-2 shadow-hairline bg-gradient-to-br from-[#FEF2F2]/60 to-surface">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-status-danger">
+                    <span>⚠️ Guardrail Triggered: {m.exclusionPrompt.term}</span>
+                  </div>
+                  <p className="text-[11px] text-ink-muted leading-relaxed">
+                    {m.exclusionPrompt.isAllergy
+                      ? "High-risk allergen detected in request. Choose a certified safe alternative below:"
+                      : "This item is in your profile exclusion list. Would you like to allow it once or choose a safe alternative?"}
+                  </p>
+                  <div className="pt-1 flex items-center gap-2">
+                    {!m.exclusionPrompt.isAllergy && (
+                      <button
+                        onClick={() => handleAllowExcludedOnce(m.exclusionPrompt!)}
+                        className="text-xs px-2.5 py-1.5 rounded-md bg-surface hover:bg-surface-subtle border border-border text-ink-primary font-medium transition-colors shadow-hairline"
+                      >
+                        Allow Once
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleViewSafeAlternatives(m.exclusionPrompt!)}
+                      className="text-xs px-3 py-1.5 rounded-md bg-brand hover:bg-brand-hover text-white font-medium transition-colors shadow-hairline flex items-center gap-1"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>View Safe Alternatives</span>
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Day Clarification Response Chips */}
               {m.dayClarification && (

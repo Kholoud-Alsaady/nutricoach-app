@@ -9,6 +9,7 @@ import type { MealSnapshot, MealType } from "@/lib/types";
 export function MealPlanView() {
   const {
     state,
+    activeProfile,
     activeTargets,
     activePlannedMeals,
     replaceMealSlot,
@@ -175,8 +176,8 @@ export function MealPlanView() {
       };
     }
     return {
-      dietType: "Baseline Maintenance",
-      split: "25% P · 50% C · 25% F",
+      dietType: activeProfile.goal || "Baseline Maintenance",
+      split: "28% P · 48% C · 24% F",
       calorieTarget: `${activeTargets.calories} kcal`,
       proteinTarget: `${activeTargets.protein}g protein`,
     };
@@ -184,20 +185,67 @@ export function MealPlanView() {
 
   const dietInfo = getDietPlanInfo();
 
+  const getGoalBadgeText = () => {
+    if (activeProfile.target_delta && activeProfile.target_delta > 0) {
+      if (activeProfile.goal?.toLowerCase().includes("fat loss")) {
+        return `Goal: -${activeProfile.target_delta} ${activeProfile.target_unit === "% body fat" ? "% body fat" : "kg"}`;
+      }
+      if (activeProfile.goal?.toLowerCase().includes("muscle")) {
+        return `Goal: +${activeProfile.target_delta} ${activeProfile.target_unit === "% body fat" ? "% muscle" : "kg Muscle"}`;
+      }
+      return `Goal: ±${activeProfile.target_delta} ${activeProfile.target_unit || "kg"}`;
+    }
+    return `Goal: ${activeProfile.goal || "Healthy Maintenance"}`;
+  };
+
   return (
     <div className="space-y-4">
       {/* Current Plan Badge & Baseline Parameters Banner */}
-      <div className="bg-surface rounded-lg border border-border p-3.5 shadow-hairline flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-2.5 flex-wrap">
-          <span className="text-[11px] font-semibold px-2.5 py-1 rounded-md bg-brand-tint text-brand border border-[#D5E6D2]">
-            Diet Type: {dietInfo.dietType}
-          </span>
-          <span className="text-xs text-ink-primary font-medium">
-            Daily Split: <span className="text-ink-secondary">{dietInfo.split}</span>
-          </span>
+      <div className="bg-surface rounded-lg border border-border p-3.5 shadow-hairline space-y-2.5">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Goal Badge */}
+            <span className="text-[11px] font-semibold px-2.5 py-1 rounded-md bg-brand-tint text-brand border border-[#D5E6D2] flex items-center gap-1">
+              <span>🎯</span>
+              <span>{getGoalBadgeText()}</span>
+            </span>
+
+            {/* Diet Type */}
+            <span className="text-[11px] font-medium px-2.5 py-1 rounded-md bg-surface-subtle text-ink-primary border border-border">
+              {dietInfo.dietType}
+            </span>
+
+            {/* Allergies Badges */}
+            {activeProfile.allergies && activeProfile.allergies.map((allergy) => (
+              <span
+                key={allergy}
+                className="text-[11px] font-semibold px-2.5 py-1 rounded-md bg-[#FEF2F2] text-status-danger border border-[#FCA5A5] flex items-center gap-1"
+              >
+                <span>⚠️ Allergy:</span>
+                <span>{allergy}</span>
+              </span>
+            ))}
+
+            {/* Exclusions Badges */}
+            {activeProfile.disliked_foods && activeProfile.disliked_foods.map((food) => (
+              <span
+                key={food}
+                className="text-[11px] font-medium px-2.5 py-1 rounded-md bg-surface-subtle text-ink-secondary border border-border flex items-center gap-1"
+              >
+                <span>🚫 Excludes:</span>
+                <span>{food.replace(/^no\s+/i, "")}</span>
+              </span>
+            ))}
+          </div>
+
+          <div className="text-[11px] text-ink-muted">
+            Base Target: <strong className="font-semibold text-ink-primary">{dietInfo.calorieTarget}</strong> · <strong className="font-semibold text-brand">{dietInfo.proteinTarget}</strong>
+          </div>
         </div>
-        <div className="text-[11px] text-ink-muted">
-          Base Target: <strong className="font-semibold text-ink-primary">{dietInfo.calorieTarget}</strong> · <strong className="font-semibold text-brand">{dietInfo.proteinTarget}</strong>
+
+        <div className="flex items-center gap-2 text-xs text-ink-secondary pt-0.5 border-t border-border/60">
+          <span className="text-ink-muted text-[11px]">Daily Macro Ratio:</span>
+          <span className="text-ink-primary font-medium text-[11px]">{dietInfo.split}</span>
         </div>
       </div>
 

@@ -55,6 +55,8 @@ export interface DemoMemberSpec {
   height: number;
   weight: number;
   goal: string;
+  target_delta?: number | null;
+  target_unit?: string | null;
   activity_level: string;
   dietary_preferences: string[];
   disliked_foods: string[];

@@ -74,7 +74,18 @@ interface NutriCoachContextType {
   // Member Management
   setActiveMember: (id: string) => void;
   selectMemberAndEnter: (id: string) => void;
-  addNewMember: (params: { name: string; calorieGoal: number; proteinGoal: number; dietGoal: string; sex: "male" | "female" }) => void;
+  addNewMember: (params: {
+    name: string;
+    calorieGoal: number;
+    proteinGoal: number;
+    dietGoal: string;
+    targetDelta?: number;
+    targetUnit?: string;
+    dietaryRestrictions?: string[];
+    dislikedFoods?: string[];
+    allergies?: string[];
+    sex: "male" | "female";
+  }) => void;
   
   // Navigation
   setActiveTab: (tab: DemoState["activeTab"]) => void;
@@ -213,29 +224,72 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
     setCurrentView("portal");
   };
 
-  // Add dynamically created new member
-  const addNewMember = ({ name, calorieGoal, proteinGoal, dietGoal, sex }: { name: string; calorieGoal: number; proteinGoal: number; dietGoal: string; sex: "male" | "female" }) => {
+  // Add dynamically created new member with preferences, allergies and quantitative targets
+  const addNewMember = ({
+    name,
+    calorieGoal,
+    proteinGoal,
+    dietGoal,
+    targetDelta = 0,
+    targetUnit = "kg",
+    dietaryRestrictions = [],
+    dislikedFoods = [],
+    allergies = [],
+    sex,
+  }: {
+    name: string;
+    calorieGoal: number;
+    proteinGoal: number;
+    dietGoal: string;
+    targetDelta?: number;
+    targetUnit?: string;
+    dietaryRestrictions?: string[];
+    dislikedFoods?: string[];
+    allergies?: string[];
+    sex: "male" | "female";
+  }) => {
     const newId = `member-${Date.now()}`;
-    const carbsGoal = Math.round((calorieGoal - proteinGoal * 4 - (calorieGoal * 0.25)) / 4);
+    const carbsGoal = Math.round((calorieGoal - proteinGoal * 4 - calorieGoal * 0.25) / 4);
     const fatGoal = Math.round((calorieGoal * 0.25) / 9);
 
-    const newMemberSpec: DemoMemberSpec = {
-      id: newId,
-      name,
-      email: `${name.toLowerCase().replace(/\s+/g, ".")}@example.com`,
-      age: 26,
-      sex,
-      height: 172,
-      weight: 70,
-      goal: dietGoal || "Healthy Fitness & Nutrition",
-      activity_level: "moderate",
-      dietary_preferences: [],
-      disliked_foods: [],
-      allergies: [],
-      scenario: "stable",
-      scenarioLabel: "Custom Created Member",
-      scenarioDescription: "Newly created profile with personalized macro targets.",
-      targets: { calories: calorieGoal, protein: proteinGoal, carbs: carbsGoal, fat: fatGoal, water: 2.5 },
+    // Normalize exclusions for planner and matching
+    const normalizedDislikes = [...dislikedFoods];
+    const normalizedAllergies = [...allergies];
+    const normalizedPrefs = [...dietaryRestrictions];
+
+    if (normalizedDislikes.some((d) => d.toLowerCase().includes("no chicken") || d.toLowerCase() === "chicken")) {
+      if (!normalizedDislikes.includes("chicken")) normalizedDislikes.push("chicken");
+    }
+    if (normalizedDislikes.some((d) => d.toLowerCase().includes("no red meat") || d.toLowerCase().includes("beef"))) {
+      if (!normalizedDislikes.includes("red meat")) normalizedDislikes.push("red meat");
+    }
+    if (normalizedDislikes.some((d) => d.toLowerCase().includes("dairy-free") || d.toLowerCase() === "dairy")) {
+      if (!normalizedDislikes.includes("dairy")) normalizedDislikes.push("dairy");
+    }
+    if (normalizedAllergies.some((a) => a.toLowerCase().includes("peanut") || a.toLowerCase().includes("nut"))) {
+      if (!normalizedAllergies.includes("nut")) normalizedAllergies.push("nut");
+      if (!normalizedAllergies.includes("peanut")) normalizedAllergies.push("peanut");
+    }
+    if (normalizedAllergies.some((a) => a.toLowerCase().includes("lactose") || a.toLowerCase().includes("dairy"))) {
+      if (!normalizedAllergies.includes("dairy")) normalizedAllergies.push("dairy");
+    }
+    if (normalizedAllergies.some((a) => a.toLowerCase().includes("gluten") || a.toLowerCase().includes("celiac"))) {
+      if (!normalizedAllergies.includes("gluten")) normalizedAllergies.push("gluten");
+    }
+    if (normalizedAllergies.some((a) => a.toLowerCase().includes("shellfish") || a.toLowerCase().includes("shrimp"))) {
+      if (!normalizedAllergies.includes("shellfish")) normalizedAllergies.push("shellfish");
+    }
+    if (normalizedPrefs.some((p) => p.toLowerCase().includes("vegetarian"))) {
+      if (!normalizedPrefs.includes("vegetarian")) normalizedPrefs.push("vegetarian");
+    }
+    if (normalizedPrefs.some((p) => p.toLowerCase().includes("pescatarian"))) {
+      if (!normalizedPrefs.includes("pescatarian")) normalizedPrefs.push("pescatarian");
+    }
+
+    const planningPreferences = {
+      disliked_foods: normalizedDislikes,
+      allergies: normalizedAllergies,
+      dietary_preferences: normalizedPrefs,
     };
 
     const newProfile: Profile = {
@@ -244,20 +298,43 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
       role: "member",
       coach_id: DEMO_COACH_ID,
       name,
-      email: newMemberSpec.email,
+      email: `${name.toLowerCase().replace(/\s+/g, ".")}@example.com`,
       age: 26,
       sex,
       height: 172,
       weight: 70,
       goal: dietGoal,
+      target_delta: targetDelta,
+      target_unit: targetUnit,
       activity_level: "moderate",
-      dietary_preferences: [],
-      disliked_foods: [],
-      allergies: [],
+      dietary_preferences: normalizedPrefs,
+      disliked_foods: normalizedDislikes,
+      allergies: normalizedAllergies,
       medical_notes: null,
       subscription_status: "active",
       demo_scenario: "stable",
       created_at: new Date().toISOString(),
+    };
+
+    const newMemberSpec: DemoMemberSpec = {
+      id: newId,
+      name,
+      email: newProfile.email!,
+      age: 26,
+      sex,
+      height: 172,
+      weight: 70,
+      goal: dietGoal,
+      target_delta: targetDelta,
+      target_unit: targetUnit,
+      activity_level: "moderate",
+      dietary_preferences: normalizedPrefs,
+      disliked_foods: normalizedDislikes,
+      allergies: normalizedAllergies,
+      scenario: "stable",
+      scenarioLabel: "Custom Created Member",
+      scenarioDescription: `Personalized profile (${dietGoal}) with active exclusions: ${[...normalizedAllergies, ...normalizedDislikes].filter(Boolean).join(", ") || "None"}.`,
+      targets: { calories: calorieGoal, protein: proteinGoal, carbs: carbsGoal, fat: fatGoal, water: 2.5 },
     };
 
     const newTargets: Targets = {
@@ -272,21 +349,31 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
       updated_at: new Date().toISOString(),
     };
 
-    // Plan baseline meals
-    const fulEggs = foodToSnapshot(FOODS.find((f) => f.id === "ful-eggs")!);
-    const chickenRice = foodToSnapshot(FOODS.find((f) => f.id === "chicken-rice")!);
-    const yogurtBerries = foodToSnapshot(FOODS.find((f) => f.id === "yogurt-berries")!);
-    const fishRice = foodToSnapshot(FOODS.find((f) => f.id === "fish-rice")!);
-
+    // Plan baseline meals respecting all dislikes, allergies and preferences
     const pMeals: PlannedMeal[] = [];
     for (let d = -13; d <= 6; d++) {
       const date = addDays(today, d);
-      pMeals.push(
-        { id: `p-${newId}-${date}-b`, plan_id: `plan-${newId}`, member_id: newId, date, meal_type: "breakfast", meal_name: fulEggs.meal_name, calories: fulEggs.calories, protein: fulEggs.protein, carbs: fulEggs.carbs, fat: fulEggs.fat, ingredients: fulEggs.ingredients, tags: fulEggs.tags, source: "coach", updated_at: new Date().toISOString() },
-        { id: `p-${newId}-${date}-l`, plan_id: `plan-${newId}`, member_id: newId, date, meal_type: "lunch", meal_name: chickenRice.meal_name, calories: chickenRice.calories, protein: chickenRice.protein, carbs: chickenRice.carbs, fat: chickenRice.fat, ingredients: chickenRice.ingredients, tags: chickenRice.tags, source: "coach", updated_at: new Date().toISOString() },
-        { id: `p-${newId}-${date}-s`, plan_id: `plan-${newId}`, member_id: newId, date, meal_type: "snack", meal_name: yogurtBerries.meal_name, calories: yogurtBerries.calories, protein: yogurtBerries.protein, carbs: yogurtBerries.carbs, fat: yogurtBerries.fat, ingredients: yogurtBerries.ingredients, tags: yogurtBerries.tags, source: "coach", updated_at: new Date().toISOString() },
-        { id: `p-${newId}-${date}-d`, plan_id: `plan-${newId}`, member_id: newId, date, meal_type: "dinner", meal_name: fishRice.meal_name, calories: fishRice.calories, protein: fishRice.protein, carbs: fishRice.carbs, fat: fishRice.fat, ingredients: fishRice.ingredients, tags: fishRice.tags, source: "coach", updated_at: new Date().toISOString() }
-      );
+      const dailyBudget: Macros = { calories: calorieGoal, protein: proteinGoal, carbs: carbsGoal, fat: fatGoal };
+      const plannedSlots = planSlots(dailyBudget, ["breakfast", "lunch", "snack", "dinner"], planningPreferences, { variety: Math.abs(d) });
+
+      for (const slot of plannedSlots) {
+        pMeals.push({
+          id: `p-${newId}-${date}-${slot.meal_type[0]}`,
+          plan_id: `plan-${newId}`,
+          member_id: newId,
+          date,
+          meal_type: slot.meal_type,
+          meal_name: slot.meal.meal_name,
+          calories: slot.meal.calories,
+          protein: slot.meal.protein,
+          carbs: slot.meal.carbs,
+          fat: slot.meal.fat,
+          ingredients: slot.meal.ingredients,
+          tags: slot.meal.tags,
+          source: "coach",
+          updated_at: new Date().toISOString(),
+        });
+      }
     }
 
     setState((prev) => ({
