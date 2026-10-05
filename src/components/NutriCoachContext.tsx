@@ -100,6 +100,7 @@ interface NutriCoachContextType {
   deleteLog: (logId: string) => void;
   replaceMeal: (params: { mealType: MealType; avoid?: string[]; reason?: string }) => void;
   replaceMealSlot: (params: { mealType: MealType; date?: string; meal: MealSnapshot; source?: "coach" | "agent" | "custom" | string; rebalanceDinner?: boolean }) => void;
+  replaceMultipleMealSlots: (params: { date: string; meals: Array<{ slot: MealType; meal: MealSnapshot }>; actionType?: string; userRequest?: string; summary?: string }) => void;
   addExtraMeal: (params: { mealType: string; mealName: string; calories: number; protein: number; carbs: number; fat: number; asLogged?: boolean; date?: string }) => void;
   confirmAddMeal: (params: { mealName: string; calories: number; protein: number; carbs: number; fat: number; mealType: string; targetDate: string; asLogged?: boolean }) => void;
   sendMemberMessage: (text: string) => Promise<void>;
@@ -746,6 +747,107 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
     }
   };
 
+  // Multiple meal slots replacement for day-level or multi-meal adaptations
+  const replaceMultipleMealSlots = ({
+    date,
+    meals,
+    actionType = "adapt_day",
+    userRequest,
+    summary,
+  }: {
+    date: string;
+    meals: Array<{ slot: MealType; meal: MealSnapshot }>;
+    actionType?: string;
+    userRequest?: string;
+    summary?: string;
+  }) => {
+    const memberId = state.activeMemberId;
+    const actionTitle = date === today ? "Today" : date === addDays(today, 1) ? "Tomorrow" : date;
+
+    setState((prev) => {
+      const currentPlanned = [...(prev.plannedMeals[memberId] || [])];
+
+      for (const item of meals) {
+        const idx = currentPlanned.findIndex((p) => p.date === date && p.meal_type === item.slot);
+        const updatedSlot: PlannedMeal = {
+          id: idx >= 0 ? currentPlanned[idx].id : `p-${Date.now()}-${item.slot}`,
+          plan_id: idx >= 0 ? currentPlanned[idx].plan_id : `plan-${memberId}`,
+          member_id: memberId,
+          date,
+          meal_type: item.slot,
+          meal_name: item.meal.meal_name,
+          calories: item.meal.calories,
+          protein: item.meal.protein,
+          carbs: item.meal.carbs,
+          fat: item.meal.fat,
+          ingredients: item.meal.ingredients || [],
+          tags: item.meal.tags || [item.slot, "agent", "adapted"],
+          source: "agent",
+          updated_at: new Date().toISOString(),
+        };
+
+        if (idx >= 0) {
+          currentPlanned[idx] = updatedSlot;
+        } else {
+          currentPlanned.push(updatedSlot);
+        }
+      }
+
+      const impact = impactFor("adapt_daily_plan", prev.gym.estimated_coach_hourly_value);
+      const newAction: AgentAction = {
+        id: `act-${Date.now()}`,
+        member_id: memberId,
+        gym_id: prev.gym.id,
+        initiated_by: memberId,
+        action_type: (actionType as any) || "adapt_day",
+        user_request: userRequest || `Adapt ${actionTitle}'s meal plan`,
+        summary: summary || `Adapted ${meals.length} meals for ${actionTitle}`,
+        tools_used: [
+          { tool: "adapt_day", summary: `Updated ${meals.length} meal slots for ${actionTitle}` },
+          { tool: "calculate_remaining_nutrition", summary: "Balanced daily macro distribution" },
+        ],
+        proposed_change: null,
+        requires_coach_approval: false,
+        approved: true,
+        execution_status: "executed",
+        decided_by: memberId,
+        decided_at: new Date().toISOString(),
+        decision_note: "Directly applied by NutriCoach agent",
+        estimated_manual_minutes: impact.estimated_manual_minutes,
+        estimated_agent_minutes: impact.estimated_agent_minutes,
+        estimated_minutes_saved: impact.estimated_minutes_saved,
+        estimated_cost_value: impact.estimated_cost_value,
+        created_at: new Date().toISOString(),
+      };
+
+      return {
+        ...prev,
+        plannedMeals: {
+          ...prev.plannedMeals,
+          [memberId]: currentPlanned,
+        },
+        actions: [newAction, ...prev.actions],
+      };
+    });
+
+    if (typeof window !== "undefined") {
+      meals.forEach((item) => {
+        fetch("/api/mutate-meal", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            memberId,
+            targetDate: date,
+            targetSlot: item.slot,
+            meal: item.meal,
+            actionType,
+            userRequest,
+          }),
+        }).catch((err) => console.warn("Background multi-meal mutation notice:", err));
+      });
+    }
+  };
+
   const adaptDailyPlan = (reason?: string) => {
     const remainingSlots = (["breakfast", "lunch", "snack", "dinner"] as MealType[]).filter(
       (slot) => !todayMealLogs.some((l) => l.meal_type === slot)
@@ -1184,8 +1286,15 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
           message: text,
           userProfile: activeProfile,
           targets: activeTargets,
-          todayPlannedMeals: state.plannedMeals[memberId] || [],
-          todayMealLogs: state.mealLogs[memberId] || [],
+          currentDate: state.today,
+          plannedMeals: state.plannedMeals[memberId] || [],
+          todayPlannedMeals: (state.plannedMeals[memberId] || []).filter((m) => m.date === state.today),
+          todayMealLogs: (state.mealLogs[memberId] || []).filter((m) => m.date === state.today),
+          mealLogs: state.mealLogs[memberId] || [],
+          recentHistory: (state.messages[memberId] || []).slice(-10).map((m) => ({
+            sender: m.sender === "coach" ? "agent" : "user",
+            text: m.text,
+          })),
         }),
       });
 
@@ -1245,8 +1354,15 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
           message: prompt,
           userProfile: activeProfile,
           targets: activeTargets,
-          todayPlannedMeals: state.plannedMeals[state.activeMemberId] || [],
-          todayMealLogs: state.mealLogs[state.activeMemberId] || [],
+          currentDate: state.today,
+          plannedMeals: state.plannedMeals[state.activeMemberId] || [],
+          todayPlannedMeals: (state.plannedMeals[state.activeMemberId] || []).filter((m) => m.date === state.today),
+          todayMealLogs: (state.mealLogs[state.activeMemberId] || []).filter((m) => m.date === state.today),
+          mealLogs: state.mealLogs[state.activeMemberId] || [],
+          recentHistory: (state.messages[state.activeMemberId] || []).slice(-10).map((m) => ({
+            sender: m.sender === "coach" ? "agent" : "user",
+            text: m.text,
+          })),
         }),
       });
 
@@ -1294,6 +1410,7 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
         deleteLog,
         replaceMeal,
         replaceMealSlot,
+        replaceMultipleMealSlots,
         addExtraMeal,
         confirmAddMeal,
         sendMemberMessage,

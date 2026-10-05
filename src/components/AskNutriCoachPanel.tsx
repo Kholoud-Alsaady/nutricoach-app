@@ -1,41 +1,30 @@
-
 "use client";
-
-function getClientOfflineFallback(
-  text: string,
-  remaining: { calories: number; protein: number; carbs: number; fat: number }
-): string {
-  const lower = text.toLowerCase().trim();
-  if (/^\s*(hi|hello|hey|salam|marhaba|good (morning|afternoon|evening)|greetings|howdy|yo)\b/i.test(lower)) {
-    return "Hello! I'm NutriCoach, your nutrition assistant. I can help with your meal ideas, swapping upcoming meals, tracking today's macros, or exploring balanced Egyptian foods.";
-  }
-  if (/\b(remaining|left|macros?|calories? left|protein left|how much (calories?|protein|carbs?|fat)? (do i have|is)? left)\b/i.test(lower)) {
-    return `You have ${remaining.calories} kcal and ${remaining.protein}g protein remaining today (along with ${remaining.carbs}g carbs and ${remaining.fat}g fat). Let me know if you would like a meal suggestion to hit your target.`;
-  }
-  if (/\b(log|i ate|i had|had|ate|eating|tracked|logging)\b/i.test(lower)) {
-    return "What did you eat and for which meal (breakfast, lunch, snack, or dinner)? Tell me the food name and portion so I can log it for you.";
-  }
-  const isArticleOrResearch = /\b(article|articles|study|studies|guideline|guidelines|paper|papers|research|link|url)\b/i.test(lower);
-  if (
-    !isArticleOrResearch &&
-    /\b(swap|replace|change|switch|snack|breakfast|lunch|dinner|what can i eat|what to eat|meal ideas?|food ideas?|suggest|recommend)\b/i.test(lower)
-  ) {
-    if (lower.includes("breakfast")) {
-      return "Here are 3 Egyptian breakfast ideas:\n\n1. **Ful medames with eggs & baladi bread** (~446 kcal · 28g P)\n2. **Shakshuka with baladi bread** (~418 kcal · 24g P)\n3. **Areesh cheese & labneh with baladi bread** (~374 kcal · 26g P)\n\nLet me know if you would like me to set one for your meal plan.";
-    }
-    if (lower.includes("snack")) {
-      return "Here are 3 Egyptian snack ideas:\n\n1. **Cottage cheese with dates** (~220 kcal · 16g P)\n2. **Termis (lupini beans)** (~131 kcal · 16g P)\n3. **Laban rayeb with oats** (~196 kcal · 12g P)\n\nLet me know if you would like to log or schedule one.";
-    }
-    return "Here are 3 Egyptian dinner ideas that fit your remaining targets:\n\n1. **Grilled tilapia (bolti) with rice & salad** (~506 kcal · 44g P)\n2. **Molokhia with chicken & rice** (~534 kcal · 40g P)\n3. **Lean chicken shawarma plate** (~550 kcal · 42g P)\n\nLet me know if you would like me to set one for your meal plan.";
-  }
-  return "I can't answer that in offline mode. I can help with your meals, macros and plan.";
-}
-
 import React, { useState } from "react";
 import { ArrowUp, BookOpen, Check, ChevronRight, ExternalLink, MessageSquare, Plus, RefreshCw, Sparkles, Utensils, X } from "lucide-react";
 import { addDays, formatDay } from "@/lib/dates";
 import { useNutriCoach } from "./NutriCoachContext";
-import type { MealSnapshot, MealType, AgentResponseContract, AgentResearchSource } from "@/lib/types";
+import type { MealSnapshot, MealType, AgentResponseContract, AgentResearchSource, AgentPendingProposal } from "@/lib/types";
+
+interface DayPlanProposalCardData {
+  targetDayLabel: string;
+  targetDate: string;
+  dayOffset?: number;
+  totalCalories: number;
+  totalProtein: number;
+  totalCarbs?: number;
+  totalFat?: number;
+  meals: Array<{
+    slot: MealType;
+    title: string;
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+    ingredients?: string[];
+  }>;
+  subtext?: string;
+  confirmed: boolean;
+}
 
 interface MealPlanActionCardData {
   icon: string;
@@ -119,6 +108,7 @@ interface AssistantMessage {
   action?: string;
   suggestedFollowUps?: string[];
   mealPlanCard?: MealPlanActionCardData;
+  dayPlanCard?: DayPlanProposalCardData;
   alternativesCard?: AlternativesCardData;
   dayClarification?: DayClarificationData;
   exclusionPrompt?: ExclusionPromptData;
@@ -139,8 +129,6 @@ interface AssistantMessage {
     isExtraSnack?: boolean;
   };
   researchSources?: AgentResearchSource[];
-  isOffline?: boolean;
-  offlineReason?: string;
   time: string;
 }
 
@@ -759,6 +747,7 @@ export function AskNutriCoachPanel() {
     weeklyRebalanceInfo,
     confirmAddMeal,
     replaceMealSlot,
+    replaceMultipleMealSlots,
     logMeal,
     todayMealLogs,
     todayRemainingMacros,
@@ -768,7 +757,7 @@ export function AskNutriCoachPanel() {
 
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [isOfflineMode, setIsOfflineMode] = useState(false);
+  const [pendingProposal, setPendingProposal] = useState<AgentPendingProposal | null>(null);
   const [reviewModal, setReviewModal] = useState<ReviewModalState | null>(null);
 
   const [aiMessages, setAiMessages] = useState<AssistantMessage[]>([
@@ -957,37 +946,78 @@ export function AskNutriCoachPanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: text,
-          currentDate: state.today,
           userProfile: activeProfile,
           targets: activeTargets,
+          currentDate: state.today,
           plannedMeals: state.plannedMeals[state.activeMemberId] || [],
+          todayPlannedMeals: state.plannedMeals[state.activeMemberId] || [],
           todayMealLogs,
-          recentHistory: aiMessages.slice(-10),
+          mealLogs: state.mealLogs[state.activeMemberId] || [],
+          recentHistory: aiMessages.slice(-6).map((m) => ({
+            sender: m.sender,
+            text: m.text,
+            intent: m.intent,
+            action: m.action,
+          })),
+          conversationState: pendingProposal ? { pendingProposal } : undefined,
         }),
       });
 
       if (res.ok) {
         const data: AgentResponseContract = await res.json();
         console.log("[NutriCoach] CHAT RESPONSE", data);
-        if (data.isOffline) {
-          setIsOfflineMode(true);
-        } else {
-          setIsOfflineMode(false);
-        }
 
         let mealPlanCard: MealPlanActionCardData | undefined;
+        let dayPlanCard: DayPlanProposalCardData | undefined;
         let alternativesCard: AlternativesCardData | undefined;
         let dayClarification: DayClarificationData | undefined;
         let exclusionPrompt: ExclusionPromptData | undefined;
         let cuisineCard: CuisineCardData | undefined;
         let pendingConfirmation: AssistantMessage["pendingConfirmation"];
 
-        // If proposed meal requires user confirmation
-        if (data.proposedMeal && data.requiresConfirmation) {
+        // If proposed meals (day-level adaptation) require user confirmation
+        if (data.proposedMeals && data.proposedMeals.length > 0 && data.requiresConfirmation) {
+          const targetDay = data.targetDay || "tomorrow";
+          const dayOffset = targetDay === "today" ? 0 : 1;
+          const targetDate = data.targetDate || addDays(state.today, dayOffset);
+
+          dayPlanCard = {
+            targetDayLabel: targetDay === "today" ? "Today" : "Tomorrow",
+            targetDate,
+            meals: data.proposedMeals.map((pm) => ({
+              slot: pm.slot as MealType,
+              title: pm.title,
+              calories: pm.calories,
+              protein: pm.protein,
+              carbs: pm.carbs,
+              fat: pm.fat,
+              ingredients: pm.ingredients || [],
+            })),
+            totalCalories: data.proposedMeals.reduce((acc, m) => acc + (m.calories || 0), 0),
+            totalProtein: data.proposedMeals.reduce((acc, m) => acc + (m.protein || 0), 0),
+            confirmed: false,
+          };
+
+          setPendingProposal({
+            id: `prop-${Date.now()}`,
+            action: data.action || "adapt_day",
+            intent: data.intent || "meal_adaptation",
+            targetDate,
+            meals: data.proposedMeals,
+            summary: data.replyText,
+          });
+        }
+
+        // If proposed single meal requires user confirmation
+        if (
+          data.proposedMeal &&
+          data.requiresConfirmation &&
+          (!data.proposedMeals || data.proposedMeals.length === 0)
+        ) {
           const slot = (data.targetSlot || "dinner") as MealType;
           const targetDay = data.targetDay || "today";
           const dayOffset = targetDay === "tomorrow" ? 1 : 0;
-          const targetDate = addDays(state.today, dayOffset);
+          const targetDate = data.targetDate || addDays(state.today, dayOffset);
 
           mealPlanCard = {
             icon: "🍽️",
@@ -1000,47 +1030,82 @@ export function AskNutriCoachPanel() {
             protein: data.proposedMeal.protein,
             carbs: data.proposedMeal.carbs,
             fat: data.proposedMeal.fat,
-            subtext: data.remainingTargetsNote || "Dinner will be automatically adjusted to keep targets balanced.",
+            subtext:
+              data.remainingTargetsNote || "Dinner will be automatically adjusted to keep targets balanced.",
             confirmed: false,
           };
+
+          setPendingProposal({
+            id: `prop-${Date.now()}`,
+            action: data.action || "replace_meal",
+            intent: data.intent || "meal_replacement",
+            targetDate,
+            targetSlot: slot,
+            meals: [data.proposedMeal],
+            summary: data.replyText,
+          });
         }
 
         // If mutation is approved and verified by application
-        if (data.shouldMutatePlan && data.proposedMeal && data.proposedMeal.title && data.targetSlot) {
-          const targetDay = data.targetDay || "today";
-          const dayOffset = targetDay === "tomorrow" ? 1 : 0;
-          const targetDate = addDays(state.today, dayOffset);
+        if (data.shouldMutatePlan) {
+          if (data.proposedMeals && data.proposedMeals.length > 0) {
+            const targetDay = data.targetDay || "tomorrow";
+            const dayOffset = targetDay === "today" ? 0 : 1;
+            const targetDate = data.targetDate || addDays(state.today, dayOffset);
 
-          console.log("MUTATION REQUEST:", {
-            memberId: state.activeMemberId,
-            targetDay,
-            targetDate,
-            targetSlot: data.targetSlot,
-            proposedMeal: data.proposedMeal,
-          });
-
-          if (data.action === "log_meal") {
-            logMeal({
-              mealName: data.proposedMeal.title,
-              mealType: data.targetSlot as MealType,
-              notes: "Logged via Ask NutriCoach",
-            });
-          } else {
-            replaceMealSlot({
-              mealType: data.targetSlot as MealType,
+            replaceMultipleMealSlots({
               date: targetDate,
-              meal: {
-                meal_name: data.proposedMeal.title,
-                calories: data.proposedMeal.calories,
-                protein: data.proposedMeal.protein,
-                carbs: data.proposedMeal.carbs,
-                fat: data.proposedMeal.fat,
-                ingredients: data.proposedMeal.ingredients || [],
-                tags: [data.targetSlot, "agent"],
-              },
-              source: "agent",
-              rebalanceDinner: data.targetSlot !== "dinner",
+              meals: data.proposedMeals.map((pm) => ({
+                slot: pm.slot as MealType,
+                meal: {
+                  meal_name: pm.title,
+                  calories: pm.calories,
+                  protein: pm.protein,
+                  carbs: pm.carbs,
+                  fat: pm.fat,
+                  ingredients: pm.ingredients || [],
+                  tags: [pm.slot || "meal", "agent", "day-adaptation"],
+                },
+              })),
             });
+            setPendingProposal(null);
+          } else if (data.proposedMeal && data.proposedMeal.title && data.targetSlot) {
+            const targetDay = data.targetDay || "today";
+            const dayOffset = targetDay === "tomorrow" ? 1 : 0;
+            const targetDate = data.targetDate || addDays(state.today, dayOffset);
+
+            console.log("MUTATION REQUEST:", {
+              memberId: state.activeMemberId,
+              targetDay,
+              targetDate,
+              targetSlot: data.targetSlot,
+              proposedMeal: data.proposedMeal,
+            });
+
+            if (data.action === "log_meal") {
+              logMeal({
+                mealName: data.proposedMeal.title,
+                mealType: data.targetSlot as MealType,
+                notes: "Logged via Ask NutriCoach",
+              });
+            } else {
+              replaceMealSlot({
+                mealType: data.targetSlot as MealType,
+                date: targetDate,
+                meal: {
+                  meal_name: data.proposedMeal.title,
+                  calories: data.proposedMeal.calories,
+                  protein: data.proposedMeal.protein,
+                  carbs: data.proposedMeal.carbs,
+                  fat: data.proposedMeal.fat,
+                  ingredients: data.proposedMeal.ingredients || [],
+                  tags: [data.targetSlot, "agent"],
+                },
+                source: "agent",
+                rebalanceDinner: data.targetSlot !== "dinner",
+              });
+            }
+            setPendingProposal(null);
           }
         }
 
@@ -1052,6 +1117,7 @@ export function AskNutriCoachPanel() {
           action: data.action,
           suggestedFollowUps: data.suggestedFollowUps,
           mealPlanCard,
+          dayPlanCard,
           alternativesCard,
           dayClarification,
           exclusionPrompt,
@@ -1064,53 +1130,44 @@ export function AskNutriCoachPanel() {
               }
             : undefined,
           pendingConfirmation,
-          researchSources: data.researchSources && data.researchSources.length > 0 ? data.researchSources : undefined,
-          isOffline: data.isOffline,
-          offlineReason: data.offlineReason,
+          researchSources:
+            data.researchSources && data.researchSources.length > 0 ? data.researchSources : undefined,
           time: "Just now",
         };
 
         setAiMessages((prev) => [...prev, agentReplyMsg]);
         setLoading(false);
         return;
+      } else {
+        const errorMsg: AssistantMessage = {
+          id: `ai-err-${Date.now()}`,
+          sender: "agent",
+          text: "I’m having trouble processing that request right now. I haven’t changed your meal plan. Please try again.",
+          intent: "unclear",
+          action: "none",
+          time: "Just now",
+        };
+        setAiMessages((prev) => [...prev, errorMsg]);
+        setLoading(false);
+        return;
       }
-
-      // Non-2xx response from /api/chat
-      const errorData = await res.json().catch(() => null);
-      console.error("[NutriCoach] /api/chat error HTTP", res.status, errorData);
-      setIsOfflineMode(true);
-
-      const fallbackText = errorData?.replyText || getClientOfflineFallback(text, todayRemainingMacros);
-      const errorReplyMsg: AssistantMessage = {
-        id: `ai-${Date.now()}`,
+    } catch (err) {
+      console.error("Chat API error:", err);
+      const errorMsg: AssistantMessage = {
+        id: `ai-err-${Date.now()}`,
         sender: "agent",
-        text: fallbackText,
-        isOffline: true,
-        offlineReason: "AI unavailable, using offline mode",
+        text: "I’m having trouble processing that request right now. I haven’t changed your meal plan. Please try again.",
+        intent: "unclear",
+        action: "none",
         time: "Just now",
       };
-
-      setAiMessages((prev) => [...prev, errorReplyMsg]);
-      setLoading(false);
-      return;
-    } catch (err: any) {
-      console.error("[NutriCoach] /api/chat network/fetch error:", err);
-      setIsOfflineMode(true);
-
-      const fallbackText = getClientOfflineFallback(text, todayRemainingMacros);
-      const networkErrorMsg: AssistantMessage = {
-        id: `ai-${Date.now()}`,
-        sender: "agent",
-        text: fallbackText,
-        isOffline: true,
-        offlineReason: "AI unavailable, using offline mode",
-        time: "Just now",
-      };
-      setAiMessages((prev) => [...prev, networkErrorMsg]);
+      setAiMessages((prev) => [...prev, errorMsg]);
       setLoading(false);
       return;
     }
-  };
+
+    };
+
 
   // Handle Ambiguity Day Choice [ Today ] / [ Tomorrow ]
   const handleDayChoice = (choice: "today" | "tomorrow", data: DayClarificationData) => {
@@ -1325,6 +1382,42 @@ export function AskNutriCoachPanel() {
     );
   };
 
+  // Apply day-level plan adaptation card
+  const handleApplyDayPlanCard = (msgId: string, card: DayPlanProposalCardData) => {
+    console.log("[NutriCoach] APPLYING DAY PLAN PROPOSAL", {
+      memberId: state.activeMemberId,
+      date: card.targetDate,
+      meals: card.meals,
+    });
+
+    replaceMultipleMealSlots({
+      date: card.targetDate,
+      meals: card.meals.map((m) => ({
+        slot: m.slot,
+        meal: {
+          meal_name: m.title,
+          calories: m.calories,
+          protein: m.protein,
+          carbs: m.carbs,
+          fat: m.fat,
+          ingredients: m.ingredients || [],
+          tags: [m.slot, "agent", "day-adaptation"],
+        },
+      })),
+    });
+
+    setAiMessages((prev) =>
+      prev.map((m) =>
+        m.id === msgId && m.dayPlanCard
+          ? { ...m, dayPlanCard: { ...m.dayPlanCard, confirmed: true } }
+          : m
+      )
+    );
+    setPendingProposal(null);
+  };
+
+
+
   // Open in-place review alternatives modal (NO PAGE REDIRECT)
   const handleOpenReviewModal = (msgId: string, card: AlternativesCardData) => {
     setReviewModal({
@@ -1414,17 +1507,10 @@ export function AskNutriCoachPanel() {
               <p className="text-[10px] text-ink-muted">Personal Nutrition Assistant</p>
             </div>
           </div>
-          {isOfflineMode ? (
-            <span className="text-[10px] text-amber-700 bg-amber-50 px-2 py-0.5 rounded font-medium border border-amber-200 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-              Offline Mode
-            </span>
-          ) : (
-            <span className="text-[10px] text-brand bg-brand-tint px-2 py-0.5 rounded font-medium border border-[#D5E6D2] flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-brand" />
-              Online
-            </span>
-          )}
+          <span className="text-[10px] text-brand bg-brand-tint px-2 py-0.5 rounded font-medium border border-[#D5E6D2] flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-brand" />
+            Online
+          </span>
         </div>
 
         {/* Quick Suggestion Pills */}
@@ -1461,17 +1547,9 @@ export function AskNutriCoachPanel() {
               }`}
             >
               <div className="flex items-center justify-between text-[10px] text-ink-muted">
-                <div className="flex items-center gap-1.5">
-                  <span className="font-semibold text-ink-primary">
-                    {isUser ? "You" : "NutriCoach"}
-                  </span>
-                  {!isUser && m.isOffline && (
-                    <span className="inline-flex items-center gap-1 text-[9px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded shadow-hairline">
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                      AI unavailable, using offline mode
-                    </span>
-                  )}
-                </div>
+                <span className="font-semibold text-ink-primary">
+                  {isUser ? "You" : "NutriCoach"}
+                </span>
                 <span>{m.time}</span>
               </div>
 
@@ -1601,6 +1679,67 @@ export function AskNutriCoachPanel() {
                         </span>
                         <button
                           onClick={() => handleViewInMealPlan(m.mealPlanCard!.dayOffset)}
+                          className="text-xs font-medium text-ink-primary hover:text-brand bg-surface-subtle hover:bg-surface px-2.5 py-1 rounded border border-border transition-colors flex items-center gap-1"
+                        >
+                          <span>View in Meal Plan</span>
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              
+              {/* Dynamic Day Plan Proposal Card (Multi-Meal) */}
+              {m.dayPlanCard && (
+                <div className="bg-surface rounded-lg border border-border p-3 space-y-2.5 mt-2 shadow-hairline">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-xs font-semibold text-brand">
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Proposed {m.dayPlanCard.targetDayLabel}&apos;s Meal Plan</span>
+                    </div>
+                    <span className="text-[10px] px-2 py-0.5 bg-brand-tint text-brand rounded font-medium border border-[#D5E6D2]">
+                      {m.dayPlanCard.totalCalories} kcal · {m.dayPlanCard.totalProtein}g Protein
+                    </span>
+                  </div>
+
+                  <div className="space-y-1.5 pt-1 border-t border-border/60 text-[11px]">
+                    {m.dayPlanCard.meals.map((meal) => (
+                      <div key={meal.slot} className="flex items-start justify-between gap-2 text-ink-secondary bg-surface-subtle/50 p-2 rounded border border-border/40">
+                        <div className="min-w-0">
+                          <span className="font-semibold text-ink-primary capitalize">{meal.slot}: </span>
+                          <span className="text-ink-secondary font-medium">{meal.title}</span>
+                          {meal.ingredients && meal.ingredients.length > 0 && (
+                            <div className="text-[10px] text-ink-muted truncate">
+                              {meal.ingredients.join(", ")}
+                            </div>
+                          )}
+                        </div>
+                        <span className="text-ink-muted text-[10px] shrink-0 font-medium">
+                          {meal.calories} kcal ({meal.protein}g P)
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="pt-1.5 flex items-center justify-between gap-2 border-t border-border/60">
+                    {!m.dayPlanCard.confirmed ? (
+                      <button
+                        onClick={() => handleApplyDayPlanCard(m.id, m.dayPlanCard!)}
+                        className="w-full text-xs font-semibold text-white bg-brand hover:bg-brand-hover px-3 py-1.5 rounded-md shadow-hairline transition-colors flex items-center justify-center gap-1.5"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>Confirm & Apply Changes</span>
+                      </button>
+                    ) : (
+                      <div className="w-full flex items-center justify-between gap-2">
+                        <span className="text-[11px] text-brand font-medium flex items-center gap-1">
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Applied to Plan</span>
+                        </span>
+                        <button
+                          onClick={() => handleViewInMealPlan(m.dayPlanCard?.targetDayLabel.toLowerCase() === "today" ? 0 : 1)}
                           className="text-xs font-medium text-ink-primary hover:text-brand bg-surface-subtle hover:bg-surface px-2.5 py-1 rounded border border-border transition-colors flex items-center gap-1"
                         >
                           <span>View in Meal Plan</span>

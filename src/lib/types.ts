@@ -316,7 +316,5 @@ export interface AgentResponseContract {
   confirmedProposalId?: string;
   researchSources?: AgentResearchSource[] | null;
   error?: string;
-  isOffline?: boolean;
-  offlineReason?: string;
 }
 

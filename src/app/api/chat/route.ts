@@ -10,7 +10,6 @@ import type {
   AgentResponseContract,
 } from "@/lib/types";
 import { addDays, daysBetween, todayISO } from "@/lib/dates";
-import { FOODS, findFood, foodCalories } from "@/lib/foods";
 
 // =============================================================================
 // /api/chat — NutriCoach general-purpose nutrition agent
@@ -646,15 +645,91 @@ Keep the response concise and useful.`;
 // Gemini prompt & schema
 // -----------------------------------------------------------------------------
 
-const SYSTEM_PROMPT = `You are NutriCoach, a friendly nutrition assistant inside a gym app for Egyptian gym members. Answer the user's actual question in 2-5 sentences. Use the member context provided for personal numbers; never invent numbers. Help with meal ideas (prefer Egyptian foods), swaps, macro questions, and plan questions. If asked for an article or a link, do NOT invent URLs or titles. Instead, give a short summary of the topic and suggest searching reputable sources (for example the NHS, Harvard T.H. Chan School of Public Health, or the WHO). You give general nutrition guidance, not medical advice. For medical conditions, allergies, pregnancy, under-18s, or signs of disordered eating, tell the member to talk to their coach or a qualified professional. Do not recommend extreme calorie restriction.
+const SYSTEM_PROMPT = `You are NutriCoach, an adaptive AI nutrition operations agent for gym members.
 
-Return only valid JSON matching the response schema.
+You are NOT a scripted chatbot and you are NOT a demo-scenario responder.
 
-Operational guidelines:
-- If proposing a meal swap, snack, or addition, set proposedMeal with { slot, title, calories, protein, carbs, fat, ingredients } and requiresConfirmation=true, shouldMutatePlan=false.
-- If the user reports eating a meal, set intent="meal_logging", action="log_meal", proposedMeal with realistic macros, requiresConfirmation=true, shouldMutatePlan=false.
-- If confirming an existing pending proposal (e.g. "yes", "apply it"), set shouldMutatePlan=true.
-- Do not mutate plan without prior pending confirmation.`;;
+Your job is to understand the member's natural-language request, inspect the supplied member state and meal-plan context, reason about the requested change, and return a structured action.
+
+Never assume that a request must match a predefined example.
+Never use the member's name or any persona label to decide what to say. Infer behavior from the actual data supplied (plan, logs, adherence history, conversation).
+
+You can handle arbitrary requests involving: meal replacement, meal additions, meal logging, meal adaptation, day-level meal-plan adaptation, week-level planning, cuisine preferences, food preferences, nutrition questions, progress questions, research requests, and meal-plan questions.
+
+RESEARCH AND INFORMATION RETRIEVAL:
+You can handle research requests.
+
+When the user asks for:
+- an article
+- a study
+- research
+- a guideline
+- evidence
+- a trusted source
+- official nutrition guidance
+- information from FAO, WHO, NIH, CDC, PubMed, or another named authority
+
+classify the request as:
+intent = research_request
+action = search_research
+
+Use web search grounding when available.
+
+For nutrition research, prioritize authoritative sources.
+Preferred sources include:
+FAO, WHO, NIH, CDC, official government health agencies, PubMed, peer-reviewed journals, universities, and established research institutions.
+
+If the user explicitly names a source such as FAO or WHO, prioritize that source.
+
+Do not invent articles, URLs, publication dates, or claims.
+Only return source links obtained from the search results.
+
+Return 2–4 high-quality sources rather than a large list.
+
+Each source in researchSources should contain:
+- title
+- url
+- sourceName
+- sourceType ("guideline", "article", "study", "report", "fact_sheet")
+- publishedDate (when available)
+- summary (short, informative summary)
+
+Research requests never modify the member's meal plan (shouldMutatePlan=false, requiresConfirmation=false).
+
+If the user later explicitly asks to apply information from the research to their meal plan, treat that as a new meal-plan request.
+
+Interpretation rules:
+- When the user specifies a day, preserve that day. Resolve relative days ("today", "tonight", "tomorrow", weekday names) using CURRENT DATE below and return the ISO date in targetDate.
+- When the user specifies a meal slot, preserve that slot.
+- "Tomorrow's meals" / "make tomorrow X" means the complete relevant meal plan for tomorrow (every planned slot that is not already logged), not just breakfast. Use action "adapt_day", intent "meal_adaptation", fill proposedMeals with one meal per slot, and leave targetSlot null.
+- When the user requests a cuisine or style, adapt the requested meals to that cuisine/style while preserving the member's calorie, protein, carb and fat targets, allergies, dislikes and dietary style.
+- Do not redirect a clear request to unrelated UI actions (e.g. never answer a clear request with "View weekly plan" or "Modify breakfast").
+- Clarify only when the request is genuinely ambiguous, and ask only for the missing piece. "I want pasta." is ambiguous (which day? which meal?). "Replace tomorrow's dinner with pasta." is clear: produce a dinner proposal (action "replace_meal", proposedMeal).
+- If the member reports food they already ate ("I had koshary for lunch"), use intent "meal_logging", action "log_meal", put the eaten food in proposedMeal with slot set, estimate its macros realistically, and in replyText explain its effect on the rest of the day. Use the planned meal for that slot to judge whether it was a deviation. If an adjustment of a later meal would help, say so and offer it as a follow-up.
+- Food preference changes ("I don't want chicken anymore", "stop using dairy") are intent "preference_change", action "update_preference", with preferenceUpdate {field, value}. Do not rewrite the plan in the same step; mention which upcoming planned meals are affected (from the plan data) and offer to replace them.
+- Use the adherence history to reason about patterns (e.g. consistent tracking, a single missed day, repeated deviations at the same meal, macro gaps, or no recent logs). One missed day is not a reason to redesign a plan. Missing logs mean missing data: never invent intake. Set needsCoachReview with a coachFollowup only when a human coach should genuinely look at something (e.g. several days with no logs, conflicting restrictions).
+
+Proposal and confirmation rules:
+- For plan or log changes, create a proposal, set requiresConfirmation=true and shouldMutatePlan=false.
+- Only set shouldMutatePlan=true when a PENDING PROPOSAL is supplied below AND the member's current message clearly confirms it. Do not invent a new proposal while confirming; the application will apply the exact pending proposal.
+- If the member's message is "yes"/"apply it" but there is no pending proposal, do not mutate; ask what they would like to change.
+- Never claim that a change was saved or applied. The application confirms mutations, not you.
+- Never directly modify a database.
+- Never propose to replace a meal marked LOGGED/EATEN. Offer to add it as an extra meal or plan it for another day instead.
+
+Nutrition rules:
+- Respect allergies as hard restrictions. Respect disliked foods and dietary style.
+- Use realistic portions and realistic macro estimates. Calories should equal roughly 4*protein + 4*carbs + 9*fat.
+- For a day-level proposal, the day's total (logged meals + proposed meals + remaining planned meals) should land close to the daily calorie target and meet the protein target.
+- Use the APPLICATION-CALCULATED remaining numbers below when answering "how much is left" questions. Do not recompute them differently.
+- Do not recommend or optimize alcohol, prohibited substances, unsafe drugs, or unsafe supplements.
+- For medical conditions requiring clinical dietary management, recommend professional medical guidance and do not make clinical decisions.
+- Do not shame food choices. Ordinary foods such as pasta, pizza, burgers, koshary, rice, bread or desserts are not prohibited.
+
+Style: concise, practical, warm, conversational. No emojis. suggestedFollowUps: 0-3 short replies that are genuinely useful next steps for THIS conversation.
+
+Use the supplied state as the source of truth. Do not invent existing meals or logs.
+Return only valid JSON matching the response schema.`;
 
 const mealSchema = {
   type: Type.OBJECT,
@@ -733,214 +808,6 @@ const RESPONSE_SCHEMA = {
 // Route
 // -----------------------------------------------------------------------------
 
-
-function buildOfflineFallback(
-  message: string,
-  memberContext: {
-    name: string;
-    goal: string;
-    dailyTargets: Macros;
-    remainingToday: AgentRemainingTargets;
-    dietaryPreferences: {
-      dietaryStyle: string;
-      allergies: string[];
-      dislikedFoods: string[];
-    };
-    todayLoggedMeals: Array<{
-      mealType: string;
-      mealName: string;
-      calories: number;
-      protein: number;
-      carbs: number;
-      fat: number;
-    }>;
-  },
-  currentDate: string
-): AgentResponseContract {
-  const text = message.trim();
-  const lower = text.toLowerCase();
-  const remaining = memberContext.remainingToday;
-
-  // 1. Greeting -> short friendly greeting, plus a one-line offer of what the bot can do
-  if (/^\s*(hi|hello|hey|salam|marhaba|good (morning|afternoon|evening)|greetings|howdy|yo)\b/i.test(text)) {
-    return {
-      replyText: "Hello! I'm NutriCoach, your nutrition assistant. I can help with your meal ideas, swapping upcoming meals, tracking today's macros, or exploring balanced Egyptian foods.",
-      intent: "general_conversation",
-      action: "none",
-      shouldMutatePlan: false,
-      requiresConfirmation: false,
-      isOffline: true,
-      offlineReason: "AI unavailable, using offline mode",
-      suggestedFollowUps: [
-        "How much protein do I have left?",
-        "What can I eat for dinner?",
-        "Suggest breakfast ideas",
-      ],
-    };
-  }
-
-  // 2. "remaining", "left", "macros" -> the remaining-macros summary
-  if (/\b(remaining|left|macros?|calories? left|protein left|how much (calories?|protein|carbs?|fat)? (do i have|is)? left)\b/i.test(text)) {
-    return {
-      replyText: `You have ${remaining.calories} kcal and ${remaining.protein}g protein remaining today (along with ${remaining.carbs}g carbs and ${remaining.fat}g fat). Let me know if you would like a meal suggestion to hit your target.`,
-      intent: "nutrition_question",
-      action: "none",
-      shouldMutatePlan: false,
-      requiresConfirmation: false,
-      remainingTargets: remaining,
-      isOffline: true,
-      offlineReason: "AI unavailable, using offline mode",
-      suggestedFollowUps: [
-        "What can I eat for dinner?",
-        "Suggest a high-protein snack",
-      ],
-    };
-  }
-
-  // Article or research query in offline mode -> falls into anything else below
-  const isArticleOrResearch = /\b(article|articles|study|studies|guideline|guidelines|paper|papers|research|link|url)\b/i.test(text);
-
-  // 3. "log", "I ate" -> help log a meal using the existing flow
-  if (/\b(log|i ate|i had|had|ate|eating|tracked|logging)\b/i.test(text)) {
-    const matched = findFood(text);
-    if (matched) {
-      let slot = "lunch";
-      if (lower.includes("breakfast")) slot = "breakfast";
-      else if (lower.includes("lunch")) slot = "lunch";
-      else if (lower.includes("dinner")) slot = "dinner";
-      else if (lower.includes("snack")) slot = "snack";
-      else if (matched.meal_types.length) slot = matched.meal_types[0];
-
-      const cals = foodCalories(matched);
-      return {
-        replyText: `I found ${matched.name} (${cals} kcal · ${matched.protein}g P · ${matched.carbs}g C · ${matched.fat}g F). Would you like to confirm logging this for your ${slot}?`,
-        intent: "meal_logging",
-        action: "log_meal",
-        targetDay: "today",
-        targetSlot: slot,
-        proposedMeal: {
-          slot,
-          title: matched.name,
-          calories: cals,
-          protein: matched.protein,
-          carbs: matched.carbs,
-          fat: matched.fat,
-          ingredients: matched.ingredients,
-        },
-        shouldMutatePlan: false,
-        requiresConfirmation: true,
-        isOffline: true,
-        offlineReason: "AI unavailable, using offline mode",
-        suggestedFollowUps: [`Confirm logging ${matched.name}`],
-      };
-    }
-
-    return {
-      replyText: "What did you eat and for which meal (breakfast, lunch, snack, or dinner)? Tell me the food name and portion so I can help log it.",
-      intent: "meal_logging",
-      action: "none",
-      shouldMutatePlan: false,
-      requiresConfirmation: false,
-      isOffline: true,
-      offlineReason: "AI unavailable, using offline mode",
-    };
-  }
-
-  // 4. Meal swap, snack or breakfast ideas -> suggest 2-3 meals from existing Egyptian food database that fit remaining macros
-  if (
-    !isArticleOrResearch &&
-    /\b(swap|replace|change|switch|snack|breakfast|lunch|dinner|what can i eat|what to eat|meal ideas?|food ideas?|suggest|recommend)\b/i.test(text)
-  ) {
-    let slot: "breakfast" | "lunch" | "dinner" | "snack" = "dinner";
-    if (lower.includes("breakfast")) slot = "breakfast";
-    else if (lower.includes("snack")) slot = "snack";
-    else if (lower.includes("lunch")) slot = "lunch";
-    else if (lower.includes("dinner") || lower.includes("eat for dinner")) slot = "dinner";
-
-    // Egyptian planning foods first
-    const egyptianCandidates = FOODS.filter(
-      (f) =>
-        f.planning &&
-        f.tags.includes("egyptian") &&
-        (slot === "breakfast"
-          ? f.meal_types.includes("breakfast")
-          : slot === "snack"
-          ? f.meal_types.includes("snack")
-          : f.meal_types.includes("lunch") || f.meal_types.includes("dinner"))
-    );
-
-    const pool = [...egyptianCandidates];
-    if (pool.length < 3) {
-      const general = FOODS.filter(
-        (f) =>
-          f.planning &&
-          (slot === "breakfast"
-            ? f.meal_types.includes("breakfast")
-            : slot === "snack"
-            ? f.meal_types.includes("snack")
-            : f.meal_types.includes("lunch") || f.meal_types.includes("dinner"))
-      );
-      for (const g of general) {
-        if (!pool.some((p) => p.id === g.id)) pool.push(g);
-        if (pool.length >= 3) break;
-      }
-    }
-
-    const suggestions = pool.slice(0, 3);
-    const formatted = suggestions
-      .map(
-        (s, i) =>
-          `${i + 1}. **${s.name}** (${foodCalories(s)} kcal · ${s.protein}g P · ${s.carbs}g C · ${s.fat}g F)`
-      )
-      .join("\n");
-
-    const first = suggestions[0];
-    const proposedMeal: AgentProposedMeal | undefined = first
-      ? {
-          slot,
-          title: first.name,
-          calories: foodCalories(first),
-          protein: first.protein,
-          carbs: first.carbs,
-          fat: first.fat,
-          ingredients: first.ingredients,
-        }
-      : undefined;
-
-    return {
-      replyText: `Here are 3 Egyptian ${slot} ideas that fit your remaining targets:\n\n${formatted}\n\nLet me know if you would like me to set one for your meal plan.`,
-      intent: "meal_replacement",
-      action: "suggest_meal",
-      targetDay: "today",
-      targetSlot: slot,
-      proposedMeal,
-      shouldMutatePlan: false,
-      requiresConfirmation: true,
-      isOffline: true,
-      offlineReason: "AI unavailable, using offline mode",
-      suggestedFollowUps: [
-        `Add ${suggestions[0]?.name || "this meal"} to today`,
-        "Suggest a different meal",
-      ],
-    };
-  }
-
-  // 5. anything else -> say honestly: "I can't answer that in offline mode. I can help with your meals, macros and plan."
-  return {
-    replyText: "I can't answer that in offline mode. I can help with your meals, macros and plan.",
-    intent: "unclear",
-    action: "none",
-    shouldMutatePlan: false,
-    requiresConfirmation: false,
-    isOffline: true,
-    offlineReason: "AI unavailable, using offline mode",
-    suggestedFollowUps: [
-      "How much protein do I have left?",
-      "What can I eat for dinner?",
-    ],
-  };
-}
-
 export async function POST(req: NextRequest) {
   let body: any;
   try {
@@ -957,11 +824,32 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Hard safety boundary
+  // STEP 1: Hard safety boundary (before any model call or nutrition reasoning)
   const safetyResult = checkSafety(message);
   if (safetyResult) return NextResponse.json(safetyResult);
 
-  // Normalise state
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || apiKey === "your_gemini_api_key_here") {
+    console.error("[NutriCoach] /api/chat: GEMINI_API_KEY is not configured.");
+    return NextResponse.json(
+      {
+        ...AGENT_UNAVAILABLE,
+        replyText: "NutriCoach AI is currently not configured with an API key. Please check your setup.",
+        error: "GEMINI_API_KEY not configured",
+      },
+      { status: 503 }
+    );
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+
+  // Dedicated first-class research request path
+  if (isResearchQuery(message)) {
+    return await handleResearchRequest(message, ai, model);
+  }
+
+  // STEP 2: Normalise the application state supplied by the client
   const currentDate: string = isISODate(body.currentDate) ? body.currentDate : todayISO();
   const userProfile = body.userProfile || {};
   const targets: Macros = {
@@ -1011,68 +899,44 @@ export async function POST(req: NextRequest) {
     });
 
   const todayRemaining = remainingFor(currentDate);
-
-  const compactMemberContext = {
-    name: userProfile.name || "Member",
-    goal: userProfile.goal || "Healthy nutrition",
-    dailyTargets: targets,
-    remainingToday: todayRemaining,
-    dietaryPreferences: {
-      dietaryStyle: userProfile.dietary_style || "balanced",
-      allergies: userProfile.allergies || [],
-      dislikedFoods: userProfile.disliked_foods || [],
-    },
-    todayLoggedMeals: loggedOn(currentDate).map((l) => ({
-      mealType: l.meal_type,
-      mealName: l.meal_name,
-      calories: l.calories,
-      protein: l.protein,
-      carbs: l.carbs,
-      fat: l.fat,
-    })),
-  };
-
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || apiKey === "your_gemini_api_key_here") {
-    console.error("[NutriCoach] /api/chat: GEMINI_API_KEY is not configured. Using offline fallback.");
-    const fallback = buildOfflineFallback(message, compactMemberContext, currentDate);
-    return NextResponse.json(fallback);
-  }
-
-  const ai = new GoogleGenAI({ apiKey });
-  const model = process.env.GEMINI_MODEL || "gemini-flash-latest";
-
-  // Dedicated first-class research request path if live search preferred
-  if (isResearchQuery(message)) {
-    try {
-      return await handleResearchRequest(message, ai, model);
-    } catch (researchErr: any) {
-      console.error("[NutriCoach] Research request error:", researchErr?.message || researchErr);
-      const fallback = buildOfflineFallback(message, compactMemberContext, currentDate);
-      return NextResponse.json(fallback);
-    }
-  }
-
   const list = (v: unknown) => (Array.isArray(v) && v.length ? v.join(", ") : "none");
 
-  const context = `MEMBER CONTEXT (use these exact numbers for personal data):
-${JSON.stringify(compactMemberContext, null, 2)}
+  const context = `CURRENT DATE: ${currentDate} (${weekdayOf(currentDate)}). Tomorrow is ${addDays(currentDate, 1)} (${weekdayOf(addDays(currentDate, 1))}).
 
-RECENT CHAT HISTORY (last 10 messages):
-${history.length ? history.map((h) => `${h.sender}: ${h.text}`).join("\n") : "(no previous messages)"}
+MEMBER PROFILE:
+- Goal: ${userProfile.goal || "not specified"}
+- Sex/age/height/weight: ${userProfile.sex || "?"}, ${userProfile.age || "?"}y, ${userProfile.height || "?"}cm, ${userProfile.weight || "?"}kg
+- Dietary style: ${userProfile.dietary_style || "standard"}
+- Dietary preferences: ${list(userProfile.dietary_preferences)}
+- Disliked foods (avoid): ${list(userProfile.disliked_foods)}
+- Allergies (HARD restriction, never include): ${list(userProfile.allergies)}
 
-USER MESSAGE:
-"${message}"`;
+DAILY TARGETS: ${targets.calories} kcal, ${targets.protein}g protein, ${targets.carbs}g carbs, ${targets.fat}g fat.
 
+APPLICATION-CALCULATED REMAINING FOR TODAY (target minus logged meals): ${todayRemaining.calories} kcal, ${todayRemaining.protein}g protein, ${todayRemaining.carbs}g carbs, ${todayRemaining.fat}g fat.
+
+MEAL PLAN AND LOGS, TODAY AND UPCOMING DAYS:
+${buildUpcomingPlan(plannedMeals, mealLogs, currentDate)}
+
+ADHERENCE HISTORY, LAST 10 DAYS (planned vs logged):
+${buildAdherenceSummary(plannedMeals, mealLogs, currentDate)}
+
+PENDING PROPOSAL AWAITING MEMBER CONFIRMATION:
+${pending ? JSON.stringify(pending) : "none"}
+
+RECENT CONVERSATION:
+${history.length ? history.map((h) => `${h.sender}: ${h.text}`).join("\n") : "(no previous messages)"}`;
+
+  // STEP 3: Call Gemini (with one corrective retry if a day-level proposal is badly unbalanced)
   const callModel = async (correction?: string): Promise<any | null> => {
     const response = await ai.models.generateContent({
       model,
-      contents: correction ? `${message}\n\n[Feedback: ${correction}]` : message,
+      contents: correction ? `${message}\n\n[Application feedback on your previous proposal: ${correction}]` : message,
       config: {
         systemInstruction: `${SYSTEM_PROMPT}\n\n${context}`,
         responseMimeType: "application/json",
         responseSchema: RESPONSE_SCHEMA,
-        temperature: 0.3,
+        temperature: 0.4,
       },
     });
     try {
@@ -1084,20 +948,50 @@ USER MESSAGE:
 
   try {
     let raw = await callModel();
-    if (!raw) {
-      console.error("[NutriCoach] /api/chat: model returned invalid JSON. Using offline fallback.");
-      const fallback = buildOfflineFallback(message, compactMemberContext, currentDate);
-      return NextResponse.json(fallback);
+    if (!raw || typeof raw.replyText !== "string") {
+      console.error("[NutriCoach] /api/chat: model returned invalid JSON.");
+      return NextResponse.json(AGENT_UNAVAILABLE, { status: 502 });
     }
 
+    // Day-level balance check: if the proposal is wildly off target, ask the model once to regenerate.
+    const checkDayBalance = (r: any): string | null => {
+      if (r.action !== "adapt_day" || !Array.isArray(r.proposedMeals) || !r.proposedMeals.length || !targets.calories) return null;
+      const date = resolveTargetDate(r.targetDay, r.targetDate, currentDate);
+      if (!date) return null;
+      const meals = r.proposedMeals.map((m: any) => normalizeMeal(m)).filter(Boolean) as AgentProposedMeal[];
+      const slots = new Set(meals.map((m) => m.slot));
+      const untouchedPlanned = plannedMeals.filter((p) => p.date === date && !slots.has(p.meal_type as any) && !isLogged(date, p.meal_type));
+      const total = sumMacros([...loggedOn(date), ...untouchedPlanned, ...meals]);
+      const calDev = Math.abs(total.calories - targets.calories) / targets.calories;
+      if (calDev > 0.35) {
+        return `the full day would total ${Math.round(total.calories)} kcal against a ${targets.calories} kcal target. Rebalance portions so the day lands near the target.`;
+      }
+      return null;
+    };
+
+    const imbalance = checkDayBalance(raw);
+    if (imbalance) {
+      const retry = await callModel(imbalance);
+      if (retry && typeof retry.replyText === "string" && !checkDayBalance(retry)) {
+        raw = retry;
+      } else {
+        return NextResponse.json({
+          ...AGENT_UNAVAILABLE,
+          replyText:
+            "I couldn't put together a balanced version of that plan just now, so I haven't proposed any changes. Could you try asking again?",
+        } satisfies AgentResponseContract);
+      }
+    }
+
+    // STEP 4: Application-level validation of the structured response
     const result: AgentResponseContract = {
-      replyText: String(raw.replyText || "I'm here to help with your nutrition and meals."),
+      replyText: raw.replyText.trim(),
       intent: INTENTS.includes(raw.intent) ? raw.intent : "unclear",
       action: ACTIONS.includes(raw.action) ? raw.action : "none",
       shouldMutatePlan: raw.shouldMutatePlan === true,
       requiresConfirmation: raw.requiresConfirmation === true,
-      targetDay: raw.targetDay === "tomorrow" ? "tomorrow" : "today",
-      targetSlot: BASE_SLOTS.includes(raw.targetSlot) ? raw.targetSlot : undefined,
+      targetDay: typeof raw.targetDay === "string" ? raw.targetDay : undefined,
+      targetSlot: typeof raw.targetSlot === "string" && raw.targetSlot ? raw.targetSlot.toLowerCase() : undefined,
       suggestedFollowUps: Array.isArray(raw.suggestedFollowUps) ? raw.suggestedFollowUps.map(String).slice(0, 3) : [],
       needsCoachReview: raw.needsCoachReview === true,
       coachFollowup:
@@ -1111,44 +1005,14 @@ USER MESSAGE:
     };
 
     const targetDate = resolveTargetDate(raw.targetDay, raw.targetDate, currentDate);
-    if (targetDate) result.targetDate = targetDate;
+    if (targetDate) result.targetDate = targetDate;if (targetDate && result.action !== "search_research") result.targetDate = targetDate;
 
-    let single = normalizeMeal(raw.proposedMeal, result.targetSlot);
-    let multi = Array.isArray(raw.proposedMeals)
+    const single = normalizeMeal(raw.proposedMeal, result.targetSlot);
+    const multi = Array.isArray(raw.proposedMeals)
       ? (raw.proposedMeals.map((m: any) => normalizeMeal(m)).filter((m: AgentProposedMeal | null) => m && m.slot) as AgentProposedMeal[])
       : [];
-
-    // Deterministic macro calibration from FOODS database (Requirement e)
-    if (single) {
-      const match = findFood(single.title);
-      if (match) {
-        single.title = match.name;
-        single.calories = foodCalories(match);
-        single.protein = match.protein;
-        single.carbs = match.carbs;
-        single.fat = match.fat;
-        single.ingredients = match.ingredients;
-      } else {
-        single.calories = Math.round(single.protein * 4 + single.carbs * 4 + single.fat * 9);
-      }
-      result.proposedMeal = single;
-    }
-    if (multi.length) {
-      for (const m of multi) {
-        const match = findFood(m.title);
-        if (match) {
-          m.title = match.name;
-          m.calories = foodCalories(match);
-          m.protein = match.protein;
-          m.carbs = match.carbs;
-          m.fat = match.fat;
-          m.ingredients = match.ingredients;
-        } else {
-          m.calories = Math.round(m.protein * 4 + m.carbs * 4 + m.fat * 9);
-        }
-      }
-      result.proposedMeals = multi;
-    }
+    if (single) result.proposedMeal = single;
+    if (multi.length) result.proposedMeals = multi;
 
     if (
       raw.preferenceUpdate &&
@@ -1159,7 +1023,7 @@ USER MESSAGE:
       result.preferenceUpdate = { field: raw.preferenceUpdate.field, value: raw.preferenceUpdate.value.trim().toLowerCase() };
     }
 
-    // Confirmation & mutation validation
+    // --- 4a. Confirmation path: only a real, still-valid pending proposal can be applied.
     if (result.shouldMutatePlan) {
       if (!pending) {
         result.shouldMutatePlan = false;
@@ -1185,6 +1049,7 @@ USER MESSAGE:
           result.requiresConfirmation = false;
           result.replyText = "Those meals have been logged since I proposed the change, so I won't overwrite them.";
         } else {
+          // Apply EXACTLY what was shown. Never a regenerated proposal.
           result.action = pending.action;
           result.intent = pending.intent || result.intent;
           result.targetDate = pending.targetDate || undefined;
@@ -1197,24 +1062,81 @@ USER MESSAGE:
         }
       }
     } else {
+      // --- 4b. Proposal path: anything that changes plan/logs must be confirmed first.
       if (MUTATING_ACTIONS.includes(result.action) && (result.proposedMeal || result.proposedMeals || result.preferenceUpdate)) {
         result.requiresConfirmation = true;
       }
+
+      // Eaten-meal protection for replacements (logging is allowed — that's the point of logging).
+      if (result.action !== "log_meal" && result.targetDate) {
+        const date = result.targetDate;
+        if (result.proposedMeals?.length) {
+          const blocked = result.proposedMeals.filter((m) => m.slot && isLogged(date, m.slot));
+          if (blocked.length) {
+            result.proposedMeals = result.proposedMeals.filter((m) => !(m.slot && isLogged(date, m.slot)));
+            result.replyText += ` I left ${blocked.map((m) => m.slot).join(" and ")} unchanged because it's already logged.`;
+          }
+          if (!result.proposedMeals.length) {
+            result.proposedMeals = undefined;
+            result.requiresConfirmation = false;
+          }
+        }
+        const slot = result.proposedMeal?.slot || result.targetSlot;
+        if (result.proposedMeal && slot && result.action !== "suggest_meal" && result.intent !== "meal_addition" && isLogged(date, slot)) {
+          const logged = loggedOn(date).find((l) => l.meal_type === slot);
+          result.replyText = `You've already logged ${slot}${logged ? ` (${logged.meal_name})` : ""} for ${dayLabel(date, currentDate)}, so I won't overwrite it. I can add ${result.proposedMeal.title} as an extra meal, or plan it for another day.`;
+          result.requiresConfirmation = false;
+          result.action = "none";
+          result.proposedMeal = undefined;
+          result.suggestedFollowUps = ["Add it as an extra meal", "Plan it for tomorrow"];
+        }
+      }
+
+      // Slot-level proposals need a resolvable date; otherwise ask instead of guessing.
+      if ((result.proposedMeal || result.proposedMeals) && result.requiresConfirmation && !result.targetDate) {
+        result.requiresConfirmation = false;
+        result.proposedMeal = undefined;
+        result.proposedMeals = undefined;
+        result.action = "none";
+        result.replyText += " Which day should I apply this to?";
+      }
     }
 
+    // --- 4c. Application-calculated remaining targets (never trust model arithmetic)
     const remDate = result.targetDate || currentDate;
     if (result.proposedMeals?.length || result.proposedMeal) {
       const proposed = result.proposedMeals?.length ? result.proposedMeals : [result.proposedMeal as AgentProposedMeal];
+      const replacedSlots = new Set(proposed.map((m) => m.slot));
+      const keptPlanned =
+        result.action === "log_meal"
+          ? plannedMeals.filter((p) => p.date === remDate && !replacedSlots.has(p.meal_type as any) && !isLogged(remDate, p.meal_type))
+          : plannedMeals.filter((p) => p.date === remDate && !replacedSlots.has(p.meal_type as any) && !isLogged(remDate, p.meal_type));
       const after = remainingFor(remDate, proposed);
+      const afterPlan = remainingFor(remDate, [...proposed, ...keptPlanned]);
       result.remainingTargets = after;
+      const label = dayLabel(remDate, currentDate);
+      result.remainingTargetsNote =
+        `With this ${result.action === "log_meal" ? "logged" : "change"}, ${label}'s logged and proposed meals leave ${after.calories} kcal and ${after.protein}g protein of your target.` +
+        (keptPlanned.length
+          ? ` Including the rest of ${label}'s planned meals, the day would finish ${afterPlan.calories >= 0 ? `${afterPlan.calories} kcal under` : `${Math.abs(afterPlan.calories)} kcal over`} target with ${afterPlan.protein >= 0 ? `${afterPlan.protein}g protein still to go` : `protein target met`}.`
+          : "");
     } else if (result.intent === "nutrition_question" || result.intent === "progress_question") {
       result.remainingTargets = todayRemaining;
     }
 
+    console.log("[NutriCoach] /api/chat result", {
+      intent: result.intent,
+      action: result.action,
+      shouldMutatePlan: result.shouldMutatePlan,
+      requiresConfirmation: result.requiresConfirmation,
+      targetDate: result.targetDate,
+      targetSlot: result.targetSlot,
+      meals: (result.proposedMeals || (result.proposedMeal ? [result.proposedMeal] : [])).map((m) => `${m.slot}:${m.title}`),
+    });
+
     return NextResponse.json(result);
   } catch (error: any) {
     console.error("[NutriCoach] /api/chat Gemini error:", error?.message || error);
-    const fallback = buildOfflineFallback(message, compactMemberContext, currentDate);
-    return NextResponse.json(fallback);
+    return NextResponse.json(AGENT_UNAVAILABLE, { status: 502 });
   }
 }
