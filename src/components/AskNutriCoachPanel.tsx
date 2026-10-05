@@ -1,4 +1,36 @@
+
 "use client";
+
+function getClientOfflineFallback(
+  text: string,
+  remaining: { calories: number; protein: number; carbs: number; fat: number }
+): string {
+  const lower = text.toLowerCase().trim();
+  if (/^\s*(hi|hello|hey|salam|marhaba|good (morning|afternoon|evening)|greetings|howdy|yo)\b/i.test(lower)) {
+    return "Hello! I'm NutriCoach, your nutrition assistant. I can help with your meal ideas, swapping upcoming meals, tracking today's macros, or exploring balanced Egyptian foods.";
+  }
+  if (/\b(remaining|left|macros?|calories? left|protein left|how much (calories?|protein|carbs?|fat)? (do i have|is)? left)\b/i.test(lower)) {
+    return `You have ${remaining.calories} kcal and ${remaining.protein}g protein remaining today (along with ${remaining.carbs}g carbs and ${remaining.fat}g fat). Let me know if you would like a meal suggestion to hit your target.`;
+  }
+  if (/\b(log|i ate|i had|had|ate|eating|tracked|logging)\b/i.test(lower)) {
+    return "What did you eat and for which meal (breakfast, lunch, snack, or dinner)? Tell me the food name and portion so I can log it for you.";
+  }
+  const isArticleOrResearch = /\b(article|articles|study|studies|guideline|guidelines|paper|papers|research|link|url)\b/i.test(lower);
+  if (
+    !isArticleOrResearch &&
+    /\b(swap|replace|change|switch|snack|breakfast|lunch|dinner|what can i eat|what to eat|meal ideas?|food ideas?|suggest|recommend)\b/i.test(lower)
+  ) {
+    if (lower.includes("breakfast")) {
+      return "Here are 3 Egyptian breakfast ideas:\n\n1. **Ful medames with eggs & baladi bread** (~446 kcal · 28g P)\n2. **Shakshuka with baladi bread** (~418 kcal · 24g P)\n3. **Areesh cheese & labneh with baladi bread** (~374 kcal · 26g P)\n\nLet me know if you would like me to set one for your meal plan.";
+    }
+    if (lower.includes("snack")) {
+      return "Here are 3 Egyptian snack ideas:\n\n1. **Cottage cheese with dates** (~220 kcal · 16g P)\n2. **Termis (lupini beans)** (~131 kcal · 16g P)\n3. **Laban rayeb with oats** (~196 kcal · 12g P)\n\nLet me know if you would like to log or schedule one.";
+    }
+    return "Here are 3 Egyptian dinner ideas that fit your remaining targets:\n\n1. **Grilled tilapia (bolti) with rice & salad** (~506 kcal · 44g P)\n2. **Molokhia with chicken & rice** (~534 kcal · 40g P)\n3. **Lean chicken shawarma plate** (~550 kcal · 42g P)\n\nLet me know if you would like me to set one for your meal plan.";
+  }
+  return "I can't answer that in offline mode. I can help with your meals, macros and plan.";
+}
+
 import React, { useState } from "react";
 import { ArrowUp, BookOpen, Check, ChevronRight, ExternalLink, MessageSquare, Plus, RefreshCw, Sparkles, Utensils, X } from "lucide-react";
 import { addDays, formatDay } from "@/lib/dates";
@@ -107,6 +139,8 @@ interface AssistantMessage {
     isExtraSnack?: boolean;
   };
   researchSources?: AgentResearchSource[];
+  isOffline?: boolean;
+  offlineReason?: string;
   time: string;
 }
 
@@ -734,6 +768,7 @@ export function AskNutriCoachPanel() {
 
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [isOfflineMode, setIsOfflineMode] = useState(false);
   const [reviewModal, setReviewModal] = useState<ReviewModalState | null>(null);
 
   const [aiMessages, setAiMessages] = useState<AssistantMessage[]>([
@@ -934,6 +969,11 @@ export function AskNutriCoachPanel() {
       if (res.ok) {
         const data: AgentResponseContract = await res.json();
         console.log("[NutriCoach] CHAT RESPONSE", data);
+        if (data.isOffline) {
+          setIsOfflineMode(true);
+        } else {
+          setIsOfflineMode(false);
+        }
 
         let mealPlanCard: MealPlanActionCardData | undefined;
         let alternativesCard: AlternativesCardData | undefined;
@@ -1025,6 +1065,8 @@ export function AskNutriCoachPanel() {
             : undefined,
           pendingConfirmation,
           researchSources: data.researchSources && data.researchSources.length > 0 ? data.researchSources : undefined,
+          isOffline: data.isOffline,
+          offlineReason: data.offlineReason,
           time: "Just now",
         };
 
@@ -1036,16 +1078,15 @@ export function AskNutriCoachPanel() {
       // Non-2xx response from /api/chat
       const errorData = await res.json().catch(() => null);
       console.error("[NutriCoach] /api/chat error HTTP", res.status, errorData);
+      setIsOfflineMode(true);
 
-      const errorMessage =
-        errorData?.replyText ||
-        errorData?.error ||
-        "I couldn't process that request right now. No meal plan changes were made.";
-
+      const fallbackText = errorData?.replyText || getClientOfflineFallback(text, todayRemainingMacros);
       const errorReplyMsg: AssistantMessage = {
         id: `ai-${Date.now()}`,
         sender: "agent",
-        text: errorMessage,
+        text: fallbackText,
+        isOffline: true,
+        offlineReason: "AI unavailable, using offline mode",
         time: "Just now",
       };
 
@@ -1054,10 +1095,15 @@ export function AskNutriCoachPanel() {
       return;
     } catch (err: any) {
       console.error("[NutriCoach] /api/chat network/fetch error:", err);
+      setIsOfflineMode(true);
+
+      const fallbackText = getClientOfflineFallback(text, todayRemainingMacros);
       const networkErrorMsg: AssistantMessage = {
         id: `ai-${Date.now()}`,
         sender: "agent",
-        text: "I couldn't connect to NutriCoach right now. Please check your network connection and try again.",
+        text: fallbackText,
+        isOffline: true,
+        offlineReason: "AI unavailable, using offline mode",
         time: "Just now",
       };
       setAiMessages((prev) => [...prev, networkErrorMsg]);
@@ -1368,10 +1414,17 @@ export function AskNutriCoachPanel() {
               <p className="text-[10px] text-ink-muted">Personal Nutrition Assistant</p>
             </div>
           </div>
-          <span className="text-[10px] text-brand bg-brand-tint px-2 py-0.5 rounded font-medium border border-[#D5E6D2] flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-brand" />
-            Online
-          </span>
+          {isOfflineMode ? (
+            <span className="text-[10px] text-amber-700 bg-amber-50 px-2 py-0.5 rounded font-medium border border-amber-200 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+              Offline Mode
+            </span>
+          ) : (
+            <span className="text-[10px] text-brand bg-brand-tint px-2 py-0.5 rounded font-medium border border-[#D5E6D2] flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-brand" />
+              Online
+            </span>
+          )}
         </div>
 
         {/* Quick Suggestion Pills */}
@@ -1408,9 +1461,17 @@ export function AskNutriCoachPanel() {
               }`}
             >
               <div className="flex items-center justify-between text-[10px] text-ink-muted">
-                <span className="font-semibold text-ink-primary">
-                  {isUser ? "You" : "NutriCoach"}
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-semibold text-ink-primary">
+                    {isUser ? "You" : "NutriCoach"}
+                  </span>
+                  {!isUser && m.isOffline && (
+                    <span className="inline-flex items-center gap-1 text-[9px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded shadow-hairline">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                      AI unavailable, using offline mode
+                    </span>
+                  )}
+                </div>
                 <span>{m.time}</span>
               </div>
 
