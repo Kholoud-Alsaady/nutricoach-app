@@ -593,8 +593,12 @@ Keep the response concise and useful.`;
 
     scoredChunks.sort((a, b) => b.score - a.score);
 
+    // Hard trust boundary: research cards must contain ONLY approved authoritative domains.
+    // Never fall back to arbitrary Google results just because fewer than two trusted
+    // sources were found. It is better to return a clear "no trusted source found"
+    // response than to surface an untrusted article.
     const trustedOnly = scoredChunks.filter((c) => isTrustedResearchSource(c.uri));
-    const selectedChunks = (trustedOnly.length >= 2 ? trustedOnly : scoredChunks).slice(0, 4);
+    const selectedChunks = trustedOnly.slice(0, 4);
 
     const researchSources: AgentResearchSource[] = selectedChunks.map((c) => {
       const sourceName = inferSourceName(c.uri, c.title);
@@ -979,6 +983,46 @@ ${history.length ? history.map((h) => `${h.sender}: ${h.text}`).join("\n") : "(n
           ...AGENT_UNAVAILABLE,
           replyText:
             "I couldn't put together a balanced version of that plan just now, so I haven't proposed any changes. Could you try asking again?",
+        } satisfies AgentResponseContract);
+      }
+    }
+
+    // A clear day-level meal-plan request must produce a real proposal card.
+    // Do not let the model silently downgrade it to a generic answer.
+    const looksLikeDayPlanRequest = /\\b(today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b/i.test(message)
+      && /\\b(change|change all|switch|make|plan|meals|meal plan|menu|cuisine|food|replace|adapt|modify|update)\\b/i.test(message);
+
+    const missingDayProposal =
+      looksLikeDayPlanRequest
+      && !pending
+      && !(
+        raw.action === "adapt_day"
+        && Array.isArray(raw.proposedMeals)
+        && raw.proposedMeals.length > 0
+      );
+
+    if (missingDayProposal) {
+      const retry = await callModel(
+        "This is a CLEAR day-level meal-plan change request. Do not answer conversationally and do not redirect the user. " +
+        "Return action=adapt_day, intent=meal_adaptation, requiresConfirmation=true, shouldMutatePlan=false, " +
+        "the exact resolved targetDate, and proposedMeals containing every unlogged planned meal slot for that day. " +
+        "The proposal must be shown to the user for confirmation before any mutation."
+      );
+      if (retry && typeof retry.replyText === "string"
+        && retry.action === "adapt_day"
+        && Array.isArray(retry.proposedMeals)
+        && retry.proposedMeals.length > 0
+        && !checkDayBalance(retry)) {
+        raw = retry;
+      } else {
+        return NextResponse.json({
+          ...AGENT_UNAVAILABLE,
+          replyText:
+            "I understood that you want to change that day's meals, but I couldn't generate the meal proposal reliably. I haven't changed your plan. Please try the request again.",
+          intent: "meal_adaptation",
+          action: "adapt_day",
+          requiresConfirmation: false,
+          shouldMutatePlan: false,
         } satisfies AgentResponseContract);
       }
     }
