@@ -120,6 +120,13 @@ interface NutriCoachContextType {
   rejectProposal: (actionId: string, note?: string) => void;
   updateGymAssumptions: (partial: Partial<Gym>) => void;
   updateChatbotPreferences: (prefs: Partial<ChatbotPreferences>) => Promise<{ success: boolean; error?: string }>;
+  updateDietaryPreferences: (updates: {
+    allergies?: string[];
+    disliked_foods?: string[];
+    dietary_style?: string | null;
+    dietary_preferences?: string[];
+    medical_notes?: string | null;
+  }) => Promise<{ success: boolean; error?: string }>;
   askAgent: (prompt: string) => Promise<{ reply: string; actionCard?: AgentActionCard }>;
   resetDemo: () => void;
 }
@@ -1785,6 +1792,59 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
     }
   };
 
+  const updateDietaryPreferences = async (updates: {
+    allergies?: string[];
+    disliked_foods?: string[];
+    dietary_style?: string | null;
+    dietary_preferences?: string[];
+    medical_notes?: string | null;
+  }): Promise<{ success: boolean; error?: string }> => {
+    const memberId = state.activeMemberId;
+    const currentMemberProfile = state.profiles[memberId] || activeProfile;
+
+    const mergedProfile: Profile = {
+      ...currentMemberProfile,
+      ...(updates.allergies !== undefined ? { allergies: updates.allergies } : {}),
+      ...(updates.disliked_foods !== undefined ? { disliked_foods: updates.disliked_foods } : {}),
+      ...(updates.dietary_style !== undefined ? { dietary_style: updates.dietary_style } : {}),
+      ...(updates.dietary_preferences !== undefined ? { dietary_preferences: updates.dietary_preferences } : {}),
+      ...(updates.medical_notes !== undefined ? { medical_notes: updates.medical_notes } : {}),
+    };
+
+    // Optimistically update local state
+    setState((prev) => {
+      const p = prev.profiles[memberId] || prev.profiles[prev.members[0]?.id];
+      if (!p) return prev;
+      return {
+        ...prev,
+        profiles: {
+          ...prev.profiles,
+          [memberId]: mergedProfile,
+        },
+      };
+    });
+
+    try {
+      const res = await fetch("/api/profile/preferences", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        const errMsg = errData.error || `Server returned ${res.status}`;
+        console.error("[NutriCoach] Failed to save dietary preferences:", errMsg);
+        return { success: false, error: errMsg };
+      }
+
+      return { success: true };
+    } catch (e: any) {
+      console.error("[NutriCoach] Network error saving dietary preferences:", e);
+      return { success: false, error: e?.message || "Network error while saving dietary preferences" };
+    }
+  };
+
   return (
     <NutriCoachContext.Provider
       value={{
@@ -1835,6 +1895,7 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
         rejectProposal,
         updateGymAssumptions,
         updateChatbotPreferences,
+        updateDietaryPreferences,
         askAgent,
         resetDemo,
       }}

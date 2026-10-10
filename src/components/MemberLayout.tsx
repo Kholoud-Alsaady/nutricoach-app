@@ -1,6 +1,7 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
+import { Compass, HelpCircle } from "lucide-react";
 import { MemberSidebar } from "./MemberSidebar";
 import { MacroSummary } from "./MacroSummary";
 import { AdaptiveAdjustmentBox } from "./AdaptiveAdjustmentBox";
@@ -11,10 +12,12 @@ import { MealPlanView } from "./MealPlanView";
 import { ProgressView } from "./ProgressView";
 import { MemberProfileView } from "./MemberProfileView";
 import { TodayTipCard } from "./TodayTipCard";
+import { AppTourModal } from "./AppTourModal";
 import { useNutriCoach } from "./NutriCoachContext";
 
 export function MemberLayout() {
-  const { state, activeProfile, setCurrentView } = useNutriCoach();
+  const { state, activeProfile, setCurrentView, setActiveTab } = useNutriCoach();
+  const [isTourOpen, setIsTourOpen] = useState(false);
 
   const getGreeting = () => {
     const name = activeProfile?.name?.split(" ")[0] || "Athlete";
@@ -35,7 +38,7 @@ export function MemberLayout() {
     <div className="min-h-screen bg-canvas flex justify-center selection:bg-brand-tint selection:text-brand">
       <div className="w-full max-w-[1200px] flex min-h-screen border-x border-border/60 bg-canvas">
         {/* Member-Only Left Navigation (220px fixed) */}
-        <MemberSidebar />
+        <MemberSidebar onOpenTour={() => setIsTourOpen(true)} />
 
         {/* Center Main Workspace (640px flexible) */}
         <main className="flex-1 min-w-0 px-6 py-6 overflow-y-auto space-y-5">
@@ -76,12 +79,23 @@ export function MemberLayout() {
               </p>
             </div>
 
-            {state.activeTab === "today" && (
-              <div className="flex items-center gap-1.5 text-xs text-brand font-medium bg-brand-tint px-2.5 py-1 rounded-md border border-[#D5E6D2]">
-                <span className="w-1.5 h-1.5 rounded-full bg-brand" />
-                <span>Adaptive active</span>
-              </div>
-            )}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsTourOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-surface text-ink-primary hover:bg-surface-subtle border border-border text-xs font-medium transition-colors shadow-hairline"
+              >
+                <Compass className="w-3.5 h-3.5 text-brand" />
+                <span>Take a Tour</span>
+              </button>
+
+              {state.activeTab === "today" && (
+                <div className="flex items-center gap-1.5 text-xs text-brand font-medium bg-brand-tint px-2.5 py-1 rounded-md border border-[#D5E6D2]">
+                  <span className="w-1.5 h-1.5 rounded-full bg-brand" />
+                  <span>Adaptive active</span>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Member Content Routing */}
@@ -113,6 +127,15 @@ export function MemberLayout() {
         {/* Right Contextual Panel (340px) */}
         <AskNutriCoachPanel />
       </div>
+
+      {/* Interactive Read-Only Member App Tour Modal */}
+      <AppTourModal
+        isOpen={isTourOpen}
+        onClose={() => setIsTourOpen(false)}
+        tourType="member"
+        onTabChange={(tab) => setActiveTab(tab as any)}
+        initialTab={state.activeTab}
+      />
     </div>
   );
 }

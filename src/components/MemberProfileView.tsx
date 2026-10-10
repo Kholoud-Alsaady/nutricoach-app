@@ -4,67 +4,164 @@ import React, { useState, useEffect } from "react";
 import {
   AlertTriangle,
   AlertCircle,
+  Check,
   CheckCircle2,
   Loader2,
-  MessageSquare,
+  Plus,
+  RotateCcw,
   Save,
   ShieldAlert,
   Sparkles,
   Target,
-  User,
+  Utensils,
+  X,
 } from "lucide-react";
 import { useNutriCoach } from "./NutriCoachContext";
-import {
-  DEFAULT_CHATBOT_PREFERENCES,
-  type ChatbotPreferences,
-  type CommunicationStyle,
-  type EncouragementLevel,
-  type ResponseDetail,
-  type ChatLanguagePreference,
-} from "@/lib/types";
+
+const COMMON_ALLERGIES_INTOLERANCES = [
+  "Peanuts / Nuts",
+  "Dairy / Lactose",
+  "Gluten",
+  "Shellfish",
+  "Soy",
+  "Eggs",
+  "Fish",
+  "Sesame",
+];
+
+const COMMON_DISLIKED_FOODS = [
+  "Chicken",
+  "Tuna",
+  "Mushrooms",
+  "Red Meat",
+  "Eggs",
+  "Dairy",
+  "Eggplant",
+  "Fish",
+  "Cilantro",
+  "Pork",
+];
+
+const DIETARY_PATTERNS = [
+  "Standard / Omnivore",
+  "Vegetarian",
+  "Vegan",
+  "Pescatarian",
+  "Keto / Low-Carb",
+  "Mediterranean",
+  "High-Protein",
+];
 
 export function MemberProfileView() {
-  const { activeProfile, activeTargets, updateChatbotPreferences } = useNutriCoach();
+  const { activeProfile, activeTargets, updateDietaryPreferences } = useNutriCoach();
 
-  // Local preferences state initialized from activeProfile or defaults
-  const [preferences, setPreferences] = useState<ChatbotPreferences>(() => {
-    return activeProfile.chatbot_preferences || DEFAULT_CHATBOT_PREFERENCES;
-  });
+  // Local state for dietary preferences form
+  const [allergies, setAllergies] = useState<string[]>(activeProfile.allergies || []);
+  const [dislikedFoods, setDislikedFoods] = useState<string[]>(activeProfile.disliked_foods || []);
+  const [dietaryStyle, setDietaryStyle] = useState<string>(activeProfile.dietary_style || "Standard / Omnivore");
+  const [medicalNotes, setMedicalNotes] = useState<string>(activeProfile.medical_notes || "");
 
-  const [preferredNameInput, setPreferredNameInput] = useState<string>(
-    activeProfile.chatbot_preferences?.preferred_name || ""
-  );
+  // Custom entry input fields
+  const [customAllergyInput, setCustomAllergyInput] = useState("");
+  const [customDislikeInput, setCustomDislikeInput] = useState("");
 
+  // Feedback states
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // Sync when activeProfile changes (e.g. member switch or external load)
+  // Sync state whenever activeProfile changes
   useEffect(() => {
-    const current = activeProfile.chatbot_preferences || DEFAULT_CHATBOT_PREFERENCES;
-    setPreferences(current);
-    setPreferredNameInput(current.preferred_name || "");
-  }, [activeProfile.id, activeProfile.chatbot_preferences]);
+    setAllergies(activeProfile.allergies || []);
+    setDislikedFoods(activeProfile.disliked_foods || []);
+    setDietaryStyle(activeProfile.dietary_style || "Standard / Omnivore");
+    setMedicalNotes(activeProfile.medical_notes || "");
+    setSaveSuccess(false);
+    setSaveError(null);
+  }, [activeProfile.id, activeProfile.allergies, activeProfile.disliked_foods, activeProfile.dietary_style, activeProfile.medical_notes]);
 
-  const handleSavePreferences = async (e: React.FormEvent) => {
+  // Allergies & Intolerances handlers
+  const handleToggleAllergy = (allergen: string) => {
+    const norm = allergen.toLowerCase();
+    setAllergies((prev) => {
+      const exists = prev.some((a) => a.toLowerCase() === norm);
+      return exists ? prev.filter((a) => a.toLowerCase() !== norm) : [...prev, allergen];
+    });
+  };
+
+  const handleAddCustomAllergy = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const trimmed = customAllergyInput.trim();
+    if (!trimmed) return;
+    const norm = trimmed.toLowerCase();
+    if (!allergies.some((a) => a.toLowerCase() === norm)) {
+      setAllergies((prev) => [...prev, trimmed]);
+    }
+    setCustomAllergyInput("");
+  };
+
+  const handleRemoveAllergy = (allergen: string) => {
+    const norm = allergen.toLowerCase();
+    setAllergies((prev) => prev.filter((a) => a.toLowerCase() !== norm));
+  };
+
+  // Disliked Foods handlers
+  const handleToggleDislike = (food: string) => {
+    const norm = food.toLowerCase();
+    setDislikedFoods((prev) => {
+      const exists = prev.some((d) => d.toLowerCase() === norm);
+      return exists ? prev.filter((d) => d.toLowerCase() !== norm) : [...prev, food];
+    });
+  };
+
+  const handleAddCustomDislike = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const trimmed = customDislikeInput.trim();
+    if (!trimmed) return;
+    const norm = trimmed.toLowerCase();
+    if (!dislikedFoods.some((d) => d.toLowerCase() === norm)) {
+      setDislikedFoods((prev) => [...prev, trimmed]);
+    }
+    setCustomDislikeInput("");
+  };
+
+  const handleRemoveDislike = (food: string) => {
+    const norm = food.toLowerCase();
+    setDislikedFoods((prev) => prev.filter((d) => d.toLowerCase() !== norm));
+  };
+
+  // Revert / Cancel changes
+  const handleCancel = () => {
+    setAllergies(activeProfile.allergies || []);
+    setDislikedFoods(activeProfile.disliked_foods || []);
+    setDietaryStyle(activeProfile.dietary_style || "Standard / Omnivore");
+    setMedicalNotes(activeProfile.medical_notes || "");
+    setSaveSuccess(false);
+    setSaveError(null);
+  };
+
+  // Save changes
+  const handleSaveChanges = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
     setSaveSuccess(false);
     setSaveError(null);
 
-    const payload: ChatbotPreferences = {
-      ...preferences,
-      preferred_name: preferredNameInput.trim() || null,
+    const payload = {
+      allergies,
+      disliked_foods: dislikedFoods,
+      dietary_style: dietaryStyle,
+      medical_notes: medicalNotes.trim() || null,
     };
 
-    const result = await updateChatbotPreferences(payload);
+    const res = await updateDietaryPreferences(payload);
     setIsSaving(false);
 
-    if (result.success) {
+    if (res.success) {
       setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3500);
+      setTimeout(() => setSaveSuccess(false), 4000);
     } else {
-      setSaveError(result.error || "Failed to persist preferences.");
+      setSaveError(res.error || "Failed to persist dietary preferences.");
     }
   };
 
@@ -107,25 +204,17 @@ export function MemberProfileView() {
               <span>{getGoalBadgeText()}</span>
             </span>
 
-            {activeProfile.allergies && activeProfile.allergies.map((allergy) => (
-              <span
-                key={allergy}
-                className="text-[11px] font-semibold px-2.5 py-1 rounded-md bg-[#FEF2F2] text-status-danger border border-[#FCA5A5] flex items-center gap-1"
-              >
-                <span>⚠️ Allergy:</span>
-                <span>{allergy}</span>
+            {allergies.length > 0 && (
+              <span className="text-[11px] font-semibold px-2.5 py-1 rounded-md bg-[#FEF2F2] text-status-danger border border-[#FCA5A5] flex items-center gap-1">
+                <span>⚠️ {allergies.length} {allergies.length === 1 ? "Allergy" : "Allergies"}</span>
               </span>
-            ))}
+            )}
 
-            {activeProfile.disliked_foods && activeProfile.disliked_foods.map((food) => (
-              <span
-                key={food}
-                className="text-[11px] font-medium px-2.5 py-1 rounded-md bg-surface-subtle text-ink-secondary border border-border flex items-center gap-1"
-              >
-                <span>🚫 Excludes:</span>
-                <span>{food.replace(/^no\s+/i, "")}</span>
+            {dislikedFoods.length > 0 && (
+              <span className="text-[11px] font-medium px-2.5 py-1 rounded-md bg-surface-subtle text-ink-secondary border border-border flex items-center gap-1">
+                <span>🚫 {dislikedFoods.length} Excluded</span>
               </span>
-            ))}
+            )}
           </div>
         </div>
 
@@ -153,63 +242,302 @@ export function MemberProfileView() {
             <div className="font-semibold text-xs text-ink-primary capitalize">{activeProfile.activity_level || "Moderate (3-5 sessions/wk)"}</div>
           </div>
         </div>
-
-        {/* Dietary Restrictions & Allergy Guardrails */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs pt-1">
-          {/* Allergies Card */}
-          <div className="border border-[#FCA5A5]/80 bg-gradient-to-br from-[#FEF2F2]/50 to-surface p-3.5 rounded-lg space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="font-semibold text-status-danger text-xs flex items-center gap-1.5">
-                <AlertTriangle className="w-3.5 h-3.5" />
-                <span>Allergies & Intolerances (Guardrails)</span>
-              </span>
-              <span className="text-[10px] text-status-danger font-medium">Strictly Filtered</span>
-            </div>
-
-            <div className="flex flex-wrap gap-1.5 pt-1">
-              {activeProfile.allergies && activeProfile.allergies.length > 0 ? (
-                activeProfile.allergies.map((allergy) => (
-                  <span
-                    key={allergy}
-                    className="text-[11px] font-semibold px-2.5 py-1 rounded bg-[#FEF2F2] text-status-danger border border-[#FCA5A5]"
-                  >
-                    ⚠️ {allergy}
-                  </span>
-                ))
-              ) : (
-                <span className="text-ink-muted text-xs">No known allergies reported</span>
-              )}
-            </div>
-          </div>
-
-          {/* Exclusions & Preferences Card */}
-          <div className="border border-border bg-surface-subtle p-3.5 rounded-lg space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="font-semibold text-ink-primary text-xs flex items-center gap-1.5">
-                <span>🚫 Excluded Foods & Preferences</span>
-              </span>
-              <span className="text-[10px] text-ink-muted font-medium">Excluded in Planner</span>
-            </div>
-
-            <div className="flex flex-wrap gap-1.5 pt-1">
-              {activeProfile.disliked_foods && activeProfile.disliked_foods.length > 0 ? (
-                activeProfile.disliked_foods.map((item) => (
-                  <span
-                    key={item}
-                    className="text-[11px] font-medium px-2.5 py-1 rounded bg-surface text-ink-secondary border border-border"
-                  >
-                    🚫 {item.replace(/^no\s+/i, "")}
-                  </span>
-                ))
-              ) : (
-                <span className="text-ink-muted text-xs">No excluded ingredients</span>
-              )}
-            </div>
-          </div>
-        </div>
       </div>
 
-      {/* Target Breakdown */}
+      {/* Editable Dietary Preferences & Meal Guardrails Section */}
+      <div className="bg-surface rounded-lg border border-border p-5 shadow-card space-y-5">
+        <div className="flex items-center justify-between border-b border-border pb-3 flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-md bg-brand-tint text-brand flex items-center justify-center">
+              <Utensils className="w-4 h-4" />
+            </div>
+            <div>
+              <h4 className="text-xs font-semibold text-ink-primary">Dietary Preferences & Meal Guardrails</h4>
+              <p className="text-[11px] text-ink-muted">
+                Manage your safety guardrails, ingredient exclusions, dietary pattern, and personalized notes
+              </p>
+            </div>
+          </div>
+          <span className="text-[10px] text-brand font-medium bg-brand-tint/60 px-2 py-0.5 rounded border border-[#D5E6D2]">
+            Active in Planner & AI Coach
+          </span>
+        </div>
+
+        <form onSubmit={handleSaveChanges} className="space-y-5">
+          {/* 1. Food Allergies & Intolerances (Strict Guardrails) */}
+          <div className="space-y-2.5 p-4 rounded-lg border border-[#FCA5A5]/80 bg-gradient-to-br from-[#FEF2F2]/50 to-surface">
+            <div className="flex items-center justify-between flex-wrap gap-1">
+              <label className="text-xs font-semibold text-status-danger flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                <span>Food Allergies & Intolerances (Strict Guardrails)</span>
+              </label>
+              <span className="text-[10px] text-status-danger font-medium bg-white px-2 py-0.5 rounded border border-[#FCA5A5]">
+                Never Included in Meals
+              </span>
+            </div>
+            <p className="text-[11px] text-ink-secondary leading-relaxed">
+              Meals containing these allergens are strictly filtered out by the weekly planner, meal-swap suggestions, and NutriCoach AI.
+            </p>
+
+            {/* Currently Selected Allergy Chips */}
+            <div className="flex flex-wrap gap-1.5 min-h-[30px] pt-1">
+              {allergies.length > 0 ? (
+                allergies.map((allergen) => (
+                  <span
+                    key={allergen}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-md bg-[#FEF2F2] text-status-danger border border-[#FCA5A5]"
+                  >
+                    <span>⚠️ {allergen}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveAllergy(allergen)}
+                      className="hover:text-status-danger/70 transition-colors ml-0.5"
+                      aria-label={`Remove ${allergen}`}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))
+              ) : (
+                <span className="text-xs text-ink-muted italic">No allergies selected. Choose below or add custom.</span>
+              )}
+            </div>
+
+            {/* Quick-select common allergens */}
+            <div className="space-y-1.5 pt-2">
+              <span className="text-[10px] text-ink-muted uppercase tracking-wider block font-medium">Quick Select Common Allergens:</span>
+              <div className="flex flex-wrap gap-1.5">
+                {COMMON_ALLERGIES_INTOLERANCES.map((allergen) => {
+                  const isSelected = allergies.some((a) => a.toLowerCase() === allergen.toLowerCase());
+                  return (
+                    <button
+                      key={allergen}
+                      type="button"
+                      onClick={() => handleToggleAllergy(allergen)}
+                      className={`text-[11px] px-2.5 py-1 rounded-md font-medium border transition-colors flex items-center gap-1 ${
+                        isSelected
+                          ? "bg-status-danger text-white border-status-danger shadow-hairline"
+                          : "bg-surface text-ink-secondary border-border hover:bg-surface-subtle"
+                      }`}
+                    >
+                      {isSelected ? <Check className="w-3 h-3" /> : <Plus className="w-3 h-3 text-ink-muted" />}
+                      <span>{allergen}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Custom Allergy / Intolerance Input */}
+            <div className="flex items-center gap-2 pt-2">
+              <input
+                type="text"
+                placeholder="Enter custom allergy or intolerance (e.g. Mustard, Pine nuts)..."
+                value={customAllergyInput}
+                onChange={(e) => setCustomAllergyInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleAddCustomAllergy();
+                  }
+                }}
+                className="flex-1 text-xs rounded-md border border-border bg-surface px-3 py-1.5 text-ink-primary placeholder:text-ink-muted focus:outline-none focus:ring-1 focus:ring-status-danger focus:border-status-danger transition-colors"
+                maxLength={50}
+              />
+              <button
+                type="button"
+                onClick={handleAddCustomAllergy}
+                disabled={!customAllergyInput.trim()}
+                className="px-3 py-1.5 rounded-md bg-surface text-ink-primary hover:bg-surface-subtle border border-border text-xs font-medium transition-colors disabled:opacity-40"
+              >
+                + Add Allergen
+              </button>
+            </div>
+          </div>
+
+          {/* 2. Excluded Foods & Disliked Ingredients */}
+          <div className="space-y-2.5 p-4 rounded-lg border border-border bg-surface-subtle">
+            <div className="flex items-center justify-between flex-wrap gap-1">
+              <label className="text-xs font-semibold text-ink-primary flex items-center gap-1.5">
+                <span>🚫 Excluded Foods & Disliked Ingredients</span>
+              </label>
+              <span className="text-[10px] text-ink-muted font-medium bg-surface px-2 py-0.5 rounded border border-border">
+                Excluded in Meal Generator
+              </span>
+            </div>
+            <p className="text-[11px] text-ink-secondary leading-relaxed">
+              Foods you prefer not to eat. NutriCoach will skip these ingredients when planning and proposing swaps.
+            </p>
+
+            {/* Currently Selected Disliked Chips */}
+            <div className="flex flex-wrap gap-1.5 min-h-[30px] pt-1">
+              {dislikedFoods.length > 0 ? (
+                dislikedFoods.map((food) => (
+                  <span
+                    key={food}
+                    className="inline-flex items-center gap-1 text-[11px] font-medium px-2.5 py-1 rounded-md bg-surface text-ink-secondary border border-border"
+                  >
+                    <span>🚫 {food.replace(/^no\s+/i, "")}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveDislike(food)}
+                      className="hover:text-status-danger transition-colors ml-0.5"
+                      aria-label={`Remove ${food}`}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))
+              ) : (
+                <span className="text-xs text-ink-muted italic">No excluded ingredients. Choose below or add custom.</span>
+              )}
+            </div>
+
+            {/* Quick-select common disliked foods */}
+            <div className="space-y-1.5 pt-2">
+              <span className="text-[10px] text-ink-muted uppercase tracking-wider block font-medium">Quick Select Common Exclusions:</span>
+              <div className="flex flex-wrap gap-1.5">
+                {COMMON_DISLIKED_FOODS.map((food) => {
+                  const isSelected = dislikedFoods.some((d) => d.toLowerCase() === food.toLowerCase());
+                  return (
+                    <button
+                      key={food}
+                      type="button"
+                      onClick={() => handleToggleDislike(food)}
+                      className={`text-[11px] px-2.5 py-1 rounded-md font-medium border transition-colors flex items-center gap-1 ${
+                        isSelected
+                          ? "bg-ink-primary text-white border-ink-primary shadow-hairline"
+                          : "bg-surface text-ink-secondary border-border hover:bg-surface-subtle"
+                      }`}
+                    >
+                      {isSelected ? <Check className="w-3 h-3" /> : <Plus className="w-3 h-3 text-ink-muted" />}
+                      <span>{food}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Custom Dislike Input */}
+            <div className="flex items-center gap-2 pt-2">
+              <input
+                type="text"
+                placeholder="Enter custom excluded ingredient (e.g. Eggplant, Cilantro)..."
+                value={customDislikeInput}
+                onChange={(e) => setCustomDislikeInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleAddCustomDislike();
+                  }
+                }}
+                className="flex-1 text-xs rounded-md border border-border bg-surface px-3 py-1.5 text-ink-primary placeholder:text-ink-muted focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand transition-colors"
+                maxLength={50}
+              />
+              <button
+                type="button"
+                onClick={handleAddCustomDislike}
+                disabled={!customDislikeInput.trim()}
+                className="px-3 py-1.5 rounded-md bg-surface text-ink-primary hover:bg-surface-subtle border border-border text-xs font-medium transition-colors disabled:opacity-40"
+              >
+                + Add Excluded
+              </button>
+            </div>
+          </div>
+
+          {/* 3. Dietary Pattern & 4. Additional Meal Notes */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Dietary Pattern */}
+            <div className="space-y-1.5">
+              <label htmlFor="dietary-pattern" className="text-xs font-semibold text-ink-primary block">
+                Dietary Pattern
+              </label>
+              <select
+                id="dietary-pattern"
+                value={dietaryStyle}
+                onChange={(e) => setDietaryStyle(e.target.value)}
+                className="w-full text-xs rounded-md border border-border bg-surface px-3 py-2 text-ink-primary focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand transition-colors cursor-pointer"
+              >
+                {DIETARY_PATTERNS.map((pattern) => (
+                  <option key={pattern} value={pattern}>
+                    {pattern}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[10px] text-ink-muted">
+                Shapes your meal structure (e.g. Vegetarian excludes all meat/poultry/fish; Pescatarian allows seafood).
+              </p>
+            </div>
+
+            {/* Additional Meal Notes */}
+            <div className="space-y-1.5">
+              <label htmlFor="additional-notes" className="text-xs font-semibold text-ink-primary block">
+                Additional Meal Preferences & Notes
+              </label>
+              <textarea
+                id="additional-notes"
+                rows={2}
+                value={medicalNotes}
+                onChange={(e) => setMedicalNotes(e.target.value)}
+                placeholder="e.g. Prefer larger breakfasts, avoid eating past 9 PM, love whole grains..."
+                className="w-full text-xs rounded-md border border-border bg-surface px-3 py-2 text-ink-primary placeholder:text-ink-muted focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand transition-colors resize-none"
+                maxLength={300}
+              />
+              <p className="text-[10px] text-ink-muted">
+                Optional guidance communicated to your coach and AI assistant.
+              </p>
+            </div>
+          </div>
+
+          {/* Feedback banners */}
+          {saveSuccess && (
+            <div className="flex items-center gap-2 p-3 rounded-md bg-[#F0FDF4] border border-[#86EFAC] text-status-success text-xs animate-in fade-in">
+              <CheckCircle2 className="w-4 h-4 shrink-0 text-status-success" />
+              <span>Dietary preferences saved! Your meal planner and AI coach now reflect these settings.</span>
+            </div>
+          )}
+
+          {saveError && (
+            <div className="flex items-center gap-2 p-3 rounded-md bg-[#FEF2F2] border border-[#FCA5A5] text-status-danger text-xs animate-in fade-in">
+              <AlertCircle className="w-4 h-4 shrink-0 text-status-danger" />
+              <span>Failed to save preferences: {saveError}</span>
+            </div>
+          )}
+
+          {/* Action buttons */}
+          <div className="flex items-center justify-between pt-3 border-t border-border">
+            <button
+              type="button"
+              onClick={handleCancel}
+              disabled={isSaving}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium text-ink-secondary hover:text-ink-primary hover:bg-surface-subtle transition-colors disabled:opacity-40"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Reset to Saved</span>
+            </button>
+
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-md bg-brand text-white hover:bg-brand-hover text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-hairline"
+            >
+              {isSaving ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Saving Changes...</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-3.5 h-3.5" />
+                  <span>Save Changes</span>
+                </>
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* Target Breakdown Card */}
       <div className="bg-surface rounded-lg border border-border p-5 shadow-card space-y-3">
         <div className="flex items-center justify-between border-b border-border pb-2">
           <h4 className="text-xs font-semibold text-ink-primary flex items-center gap-1.5">
@@ -244,184 +572,6 @@ export function MemberProfileView() {
             <div className="text-[10px] text-ink-muted">{Math.round((activeTargets.fat * 9 / activeTargets.calories) * 100)}% calories</div>
           </div>
         </div>
-      </div>
-
-      {/* Chatbot Preferences Section */}
-      <div className="bg-surface rounded-lg border border-border p-5 shadow-card space-y-4">
-        <div className="flex items-center justify-between border-b border-border pb-3">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-md bg-brand-tint text-brand flex items-center justify-center">
-              <MessageSquare className="w-4 h-4" />
-            </div>
-            <div>
-              <h4 className="text-xs font-semibold text-ink-primary">Chatbot Communication Preferences</h4>
-              <p className="text-[11px] text-ink-muted">Tailor the assistant tone, encouragement level, response detail, and name</p>
-            </div>
-          </div>
-          <span className="text-[10px] text-brand font-medium bg-brand-tint/60 px-2 py-0.5 rounded border border-[#D5E6D2]">
-            Personalized Coaching
-          </span>
-        </div>
-
-        <form onSubmit={handleSavePreferences} className="space-y-4 pt-1">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Preferred Name */}
-            <div className="space-y-1.5">
-              <label htmlFor="pref-name" className="text-xs font-semibold text-ink-primary flex items-center gap-1.5">
-                <User className="w-3.5 h-3.5 text-ink-muted" />
-                <span>Preferred Name</span>
-              </label>
-              <input
-                id="pref-name"
-                type="text"
-                value={preferredNameInput}
-                onChange={(e) => setPreferredNameInput(e.target.value)}
-                placeholder={`Defaults to profile name (${activeProfile.name.split(" ")[0]})`}
-                className="w-full text-xs rounded-md border border-border bg-surface px-3 py-2 text-ink-primary placeholder:text-ink-muted focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand transition-colors"
-                maxLength={40}
-              />
-              <p className="text-[10px] text-ink-muted">
-                Used in greetings. Leave blank to default naturally to &ldquo;{activeProfile.name.split(" ")[0]}&rdquo;.
-              </p>
-            </div>
-
-            {/* Communication Style */}
-            <div className="space-y-1.5">
-              <label htmlFor="pref-style" className="text-xs font-semibold text-ink-primary block">
-                Communication Style
-              </label>
-              <select
-                id="pref-style"
-                value={preferences.communication_style}
-                onChange={(e) =>
-                  setPreferences((prev) => ({
-                    ...prev,
-                    communication_style: e.target.value as CommunicationStyle,
-                  }))
-                }
-                className="w-full text-xs rounded-md border border-border bg-surface px-3 py-2 text-ink-primary focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand transition-colors cursor-pointer"
-              >
-                <option value="professional_supportive">Professional and supportive (Default)</option>
-                <option value="friendly_conversational">Friendly and conversational</option>
-                <option value="direct_concise">Direct and concise</option>
-                <option value="detailed_educational">Detailed and educational</option>
-              </select>
-              <p className="text-[10px] text-ink-muted">
-                Governs the general tone and structure across coaching replies.
-              </p>
-            </div>
-
-            {/* Encouragement Level */}
-            <div className="space-y-1.5">
-              <label htmlFor="pref-encouragement" className="text-xs font-semibold text-ink-primary block">
-                Encouragement Level
-              </label>
-              <select
-                id="pref-encouragement"
-                value={preferences.encouragement_level}
-                onChange={(e) =>
-                  setPreferences((prev) => ({
-                    ...prev,
-                    encouragement_level: e.target.value as EncouragementLevel,
-                  }))
-                }
-                className="w-full text-xs rounded-md border border-border bg-surface px-3 py-2 text-ink-primary focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand transition-colors cursor-pointer"
-              >
-                <option value="balanced">Balanced encouragement (Default)</option>
-                <option value="gentle">Gentle encouragement</option>
-                <option value="minimal">Minimal encouragement</option>
-              </select>
-              <p className="text-[10px] text-ink-muted">
-                Controls coaching reinforcement and motivational feedback on progress and setbacks.
-              </p>
-            </div>
-
-            {/* Response Detail */}
-            <div className="space-y-1.5">
-              <label htmlFor="pref-detail" className="text-xs font-semibold text-ink-primary block">
-                Response Detail
-              </label>
-              <select
-                id="pref-detail"
-                value={preferences.response_detail}
-                onChange={(e) =>
-                  setPreferences((prev) => ({
-                    ...prev,
-                    response_detail: e.target.value as ResponseDetail,
-                  }))
-                }
-                className="w-full text-xs rounded-md border border-border bg-surface px-3 py-2 text-ink-primary focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand transition-colors cursor-pointer"
-              >
-                <option value="standard">Standard (Default)</option>
-                <option value="concise">Concise</option>
-                <option value="detailed">Detailed</option>
-              </select>
-              <p className="text-[10px] text-ink-muted">
-                Adjusts standard explanation length and scientific depth.
-              </p>
-            </div>
-
-            {/* Language */}
-            <div className="space-y-1.5 md:col-span-2">
-              <label htmlFor="pref-language" className="text-xs font-semibold text-ink-primary block">
-                Language
-              </label>
-              <select
-                id="pref-language"
-                value={preferences.language}
-                onChange={(e) =>
-                  setPreferences((prev) => ({
-                    ...prev,
-                    language: e.target.value as ChatLanguagePreference,
-                  }))
-                }
-                className="w-full md:w-1/2 text-xs rounded-md border border-border bg-surface px-3 py-2 text-ink-primary focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand transition-colors cursor-pointer"
-              >
-                <option value="auto">Follow message language automatically (Default)</option>
-                <option value="en">Always English</option>
-                <option value="ar">العربية (Arabic)</option>
-              </select>
-              <p className="text-[10px] text-ink-muted">
-                Automatic language detection responds in Arabic or English according to the user message.
-              </p>
-            </div>
-          </div>
-
-          {/* Feedback states */}
-          {saveSuccess && (
-            <div className="flex items-center gap-2 p-2.5 rounded-md bg-[#F0FDF4] border border-[#86EFAC] text-status-success text-xs">
-              <CheckCircle2 className="w-4 h-4 shrink-0 text-status-success" />
-              <span>Chatbot preferences saved and applied to subsequent replies!</span>
-            </div>
-          )}
-
-          {saveError && (
-            <div className="flex items-center gap-2 p-2.5 rounded-md bg-[#FEF2F2] border border-[#FCA5A5] text-status-danger text-xs">
-              <AlertCircle className="w-4 h-4 shrink-0 text-status-danger" />
-              <span>Failed to save preferences: {saveError}</span>
-            </div>
-          )}
-
-          <div className="flex items-center justify-end pt-2 border-t border-border">
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-md bg-brand text-surface hover:bg-brand-hover text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-hairline"
-            >
-              {isSaving ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Saving Preferences...</span>
-                </>
-              ) : (
-                <>
-                  <Save className="w-3.5 h-3.5" />
-                  <span>Save Preferences</span>
-                </>
-              )}
-            </button>
-          </div>
-        </form>
       </div>
     </div>
   );

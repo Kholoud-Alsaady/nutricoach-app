@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   CheckCircle2,
   Clock,
+  Compass,
   Eye,
   Flame,
   LayoutDashboard,
@@ -18,12 +19,14 @@ import {
 } from "lucide-react";
 import { useNutriCoach } from "./NutriCoachContext";
 import { timeAgo } from "@/lib/dates";
+import { AppTourModal } from "./AppTourModal";
 
 export function CoachLayout() {
   const { state, allMessages, setActiveMember, setCurrentView, approveProposal, rejectProposal, sendCoachReply } = useNutriCoach();
   const [coachTab, setCoachTab] = useState<"overview" | "triage" | "questions" | "audit">("overview");
   const [selectedMemberId, setSelectedMemberId] = useState<string>(state.members[0].id);
   const [coachInput, setCoachInput] = useState("");
+  const [isTourOpen, setIsTourOpen] = useState(false);
 
   // Aggregate 7-day adherence data
   const weekData = [
@@ -139,6 +142,15 @@ export function CoachLayout() {
                 <Clock className={`w-4 h-4 ${coachTab === "audit" ? "text-brand" : "text-ink-muted"}`} />
                 <span>Agent Activity Log</span>
               </button>
+
+              <button
+                type="button"
+                onClick={() => setIsTourOpen(true)}
+                className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-brand hover:text-brand-hover hover:bg-brand-tint/60 transition-colors mt-2"
+              >
+                <Compass className="w-4 h-4 text-brand" />
+                <span>Take a Tour</span>
+              </button>
             </nav>
           </div>
 
@@ -165,6 +177,15 @@ export function CoachLayout() {
             </div>
 
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsTourOpen(true)}
+                className="text-xs font-medium text-ink-primary hover:text-brand bg-surface border border-border px-3 py-1.5 rounded-md shadow-hairline flex items-center gap-1.5 transition-colors"
+              >
+                <Compass className="w-3.5 h-3.5 text-brand" />
+                <span>Coach Workspace Tour</span>
+              </button>
+
               <button
                 onClick={() => handleReviewMember(state.members[2].id)}
                 className="text-xs font-medium text-brand hover:text-brand-hover bg-brand-tint px-3 py-1.5 rounded-md border border-[#D5E6D2] flex items-center gap-1"
@@ -560,6 +581,15 @@ export function CoachLayout() {
           )}
         </main>
       </div>
+
+      {/* Interactive Read-Only Coach Workspace Tour Modal */}
+      <AppTourModal
+        isOpen={isTourOpen}
+        onClose={() => setIsTourOpen(false)}
+        tourType="coach"
+        onTabChange={(tab) => setCoachTab(tab as any)}
+        initialTab={coachTab}
+      />
     </div>
   );
 }

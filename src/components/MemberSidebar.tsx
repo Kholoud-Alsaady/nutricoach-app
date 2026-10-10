@@ -4,6 +4,7 @@ import React from "react";
 import {
   ArrowLeft,
   CalendarDays,
+  Compass,
   LineChart,
   MessageSquare,
   User,
@@ -11,7 +12,11 @@ import {
 } from "lucide-react";
 import { useNutriCoach } from "./NutriCoachContext";
 
-export function MemberSidebar() {
+interface MemberSidebarProps {
+  onOpenTour?: () => void;
+}
+
+export function MemberSidebar({ onOpenTour }: MemberSidebarProps) {
   const { state, activeProfile, setActiveTab, setCurrentView } = useNutriCoach();
 
   const navItems = [
@@ -56,6 +61,17 @@ export function MemberSidebar() {
               </button>
             );
           })}
+
+          {onOpenTour && (
+            <button
+              type="button"
+              onClick={onOpenTour}
+              className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-brand hover:text-brand-hover hover:bg-brand-tint/60 transition-colors mt-2"
+            >
+              <Compass className="w-4 h-4 text-brand" />
+              <span>Take a Tour</span>
+            </button>
+          )}
         </nav>
       </div>
 

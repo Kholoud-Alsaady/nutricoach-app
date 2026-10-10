@@ -45,6 +45,7 @@ create table if not exists public.profiles (
   dietary_preferences text[] not null default '{}',
   disliked_foods text[] not null default '{}',
   allergies text[] not null default '{}',
+  dietary_style text,
   medical_notes text,
   subscription_status text not null default 'active',
   demo_scenario text,
@@ -247,7 +248,7 @@ create policy profiles_update on public.profiles for update to authenticated
 -- Only preference-style columns are writable from the app. Role, gym and
 -- coach assignment can only be changed with the service role.
 revoke update on public.profiles from authenticated;
-grant update (dietary_preferences, disliked_foods, allergies, weight, goal, activity_level, chatbot_preferences)
+grant update (dietary_preferences, disliked_foods, allergies, weight, goal, activity_level, chatbot_preferences, dietary_style, medical_notes)
   on public.profiles to authenticated;
 
 -- member-owned tables: same rule everywhere ---------------------------------

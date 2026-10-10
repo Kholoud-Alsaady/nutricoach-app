@@ -114,6 +114,13 @@ export function isAllowed(food: Food, prefs: PlanningPrefs, extraAvoid: string[]
     return false;
   }
 
+  // Vegan guardrail (strict: plant-based only, no meat, poultry, fish, dairy, or eggs)
+  if (allPrefs.some((p) => p.includes("vegan"))) {
+    const nonVeganTags = ["chicken", "turkey", "beef", "meat", "fish", "tuna", "dairy", "cheese", "milk", "yogurt", "egg", "eggs"];
+    if (food.tags.some((t) => nonVeganTags.includes(norm(t)))) return false;
+    if (food.ingredients.some((i) => nonVeganTags.some((m) => norm(i).includes(m)))) return false;
+  }
+
   // Pescatarian guardrail (no chicken, turkey, beef, red meat)
   if (allPrefs.some((p) => p.includes("pescatarian"))) {
     const meatTags = ["chicken", "turkey", "beef", "meat"];
