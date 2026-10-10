@@ -7,23 +7,25 @@ import { impactFor, measureImpact } from "@/lib/impact";
 import { caloriesFromMacros, normalizeMacros, scaleMacros, subtractMacros, sumMacros, verifyMeals } from "@/lib/nutrition";
 import { baseName, planSlots, prefsFromProfile, suggestMeals } from "@/lib/planner";
 import { createInitialDemoState, type DemoState } from "@/lib/store";
-import type {
-  AgentAction,
-  AiUsage,
-  ExecutionStatus,
-  Gym,
-  Macros,
-  MealChange,
-  MealLog,
-  MealSnapshot,
-  MealType,
-  MemberMessage,
-  PlannedMeal,
-  Profile,
-  ProposedChange,
-  Role,
-  Targets,
-  ToolTraceEntry,
+import {
+  DEFAULT_CHATBOT_PREFERENCES,
+  type AgentAction,
+  type AiUsage,
+  type ChatbotPreferences,
+  type ExecutionStatus,
+  type Gym,
+  type Macros,
+  type MealChange,
+  type MealLog,
+  type MealSnapshot,
+  type MealType,
+  type MemberMessage,
+  type PlannedMeal,
+  type Profile,
+  type ProposedChange,
+  type Role,
+  type Targets,
+  type ToolTraceEntry,
 } from "@/lib/types";
 import { DEMO_COACH_ID, DEMO_GYM_ID, type DemoMemberSpec } from "@/lib/agent/seed-data";
 
@@ -117,6 +119,7 @@ interface NutriCoachContextType {
   approveProposal: (actionId: string, optionIndex?: number) => void;
   rejectProposal: (actionId: string, note?: string) => void;
   updateGymAssumptions: (partial: Partial<Gym>) => void;
+  updateChatbotPreferences: (prefs: Partial<ChatbotPreferences>) => Promise<{ success: boolean; error?: string }>;
   askAgent: (prompt: string) => Promise<{ reply: string; actionCard?: AgentActionCard }>;
   resetDemo: () => void;
 }
@@ -1734,6 +1737,54 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
     return { reply: "I am having trouble processing that right now." };
   };
 
+  const updateChatbotPreferences = async (
+    prefs: Partial<ChatbotPreferences>
+  ): Promise<{ success: boolean; error?: string }> => {
+    const memberId = state.activeMemberId;
+    const currentMemberProfile = state.profiles[memberId] || activeProfile;
+    const existingPrefs = currentMemberProfile?.chatbot_preferences || DEFAULT_CHATBOT_PREFERENCES;
+    const mergedPrefs: ChatbotPreferences = {
+      ...existingPrefs,
+      ...prefs,
+    };
+
+    // Optimistically update local state
+    setState((prev) => {
+      const p = prev.profiles[memberId] || prev.profiles[prev.members[0]?.id];
+      if (!p) return prev;
+      return {
+        ...prev,
+        profiles: {
+          ...prev.profiles,
+          [memberId]: {
+            ...p,
+            chatbot_preferences: mergedPrefs,
+          },
+        },
+      };
+    });
+
+    try {
+      const res = await fetch("/api/preferences", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ preferences: mergedPrefs }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        const errMsg = errData.error || `Server responded with ${res.status}`;
+        console.error("[NutriCoach] Failed to save preferences:", errMsg);
+        return { success: false, error: errMsg };
+      }
+
+      return { success: true };
+    } catch (e: any) {
+      console.error("[NutriCoach] Network error saving preferences:", e);
+      return { success: false, error: e?.message || "Network error while saving preferences" };
+    }
+  };
+
   return (
     <NutriCoachContext.Provider
       value={{
@@ -1783,6 +1834,7 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
         approveProposal,
         rejectProposal,
         updateGymAssumptions,
+        updateChatbotPreferences,
         askAgent,
         resetDemo,
       }}

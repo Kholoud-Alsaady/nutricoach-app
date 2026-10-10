@@ -68,7 +68,7 @@ async function runRegressionTestSuite() {
     const reply = data.replyText || "";
 
     // Structure assertions
-    assert(reply.includes("**Short answer:**"), `Contains "**Short answer:**" section`);
+    assert(!reply.includes("**Short answer:**"), `Does NOT contain redundant "**Short answer:**" heading`);
     assert(reply.includes("**Key takeaways:**"), `Contains "**Key takeaways:**" section`);
     assert(reply.includes("**Recommended reading:**"), `Contains "**Recommended reading:**" section`);
 
@@ -176,7 +176,7 @@ In conclusion, adopting a sugar-free lifestyle provides undeniable advantages fo
     false
   );
 
-  assert(formattedMessy.includes("**Short answer:**"), `Formatter enforces "**Short answer:**"`);
+  assert(!formattedMessy.includes("**Short answer:**"), `Formatter removes "**Short answer:**" heading and begins directly with answer`);
   assert(formattedMessy.includes("**Key takeaways:**"), `Formatter enforces "**Key takeaways:**"`);
   assert(formattedMessy.includes("**Recommended reading:**"), `Formatter enforces "**Recommended reading:**"`);
   assert(!formattedMessy.includes("# Comprehensive Guide"), `Eliminates full article headings`);

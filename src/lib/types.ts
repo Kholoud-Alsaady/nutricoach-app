@@ -51,6 +51,34 @@ export interface Gym {
   usd_to_egp: number;
 }
 
+export type CommunicationStyle =
+  | "professional_supportive"
+  | "friendly_conversational"
+  | "direct_concise"
+  | "detailed_educational";
+
+export type EncouragementLevel = "gentle" | "balanced" | "minimal";
+
+export type ResponseDetail = "concise" | "standard" | "detailed";
+
+export type ChatLanguagePreference = "auto" | "en" | "ar";
+
+export interface ChatbotPreferences {
+  communication_style: CommunicationStyle;
+  encouragement_level: EncouragementLevel;
+  response_detail: ResponseDetail;
+  preferred_name?: string | null;
+  language: ChatLanguagePreference;
+}
+
+export const DEFAULT_CHATBOT_PREFERENCES: ChatbotPreferences = {
+  communication_style: "professional_supportive",
+  encouragement_level: "balanced",
+  response_detail: "standard",
+  preferred_name: null,
+  language: "auto",
+};
+
 export interface Profile {
   id: string;
   gym_id: string;
@@ -73,6 +101,7 @@ export interface Profile {
   medical_notes: string | null;
   subscription_status: string;
   demo_scenario: string | null;
+  chatbot_preferences?: ChatbotPreferences | null;
   created_at: string;
 }
 

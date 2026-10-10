@@ -80,10 +80,21 @@ export function formatNutritionResponse(
   // 1. EXTRACT OR CURATE SHORT ANSWER
   let shortAnswer = "";
 
-  // Attempt extraction from rawText if formatted with **Short answer:**
+  // Attempt extraction from rawText if formatted with **Short answer:** or direct answer
+  let candidateText = "";
   const saMatch = rawText.match(/\*\*Short answer:\*\*?\s*([\s\S]*?)(?=\*\*Key (?:benefits|takeaways)|\*\*Recommended reading|##|\n\n[•*-]|$)/i);
   if (saMatch && saMatch[1].trim()) {
-    const candidate = saMatch[1].replace(/^[#*•_`\s]+/, "").trim();
+    candidateText = saMatch[1];
+  } else {
+    // If rawText starts directly with the short answer before **Key takeaways**
+    const directMatch = rawText.match(/^([\s\S]*?)(?=\*\*Key (?:benefits|takeaways)|\*\*Recommended reading|##|\n\n[•*-]|$)/i);
+    if (directMatch && directMatch[1].trim()) {
+      candidateText = directMatch[1];
+    }
+  }
+
+  if (candidateText && candidateText.trim()) {
+    const candidate = candidateText.replace(/^[#*•_`\s]+/, "").trim();
     const sentences = candidate.split(/(?<=[.!?])\s+/).filter(Boolean);
     if (sentences.length >= 1) {
       shortAnswer = sentences.slice(0, 3).join(" ").trim();
@@ -225,7 +236,7 @@ export function formatNutritionResponse(
 
   const takeawaysText = takeaways.map((t) => `• ${t}`).join("\n");
 
-  return `**Short answer:**\n${shortAnswer}\n\n**Key takeaways:**\n${takeawaysText}\n\n**Recommended reading:**\n${readingList}${disclaimer}`;
+  return `${shortAnswer}\n\n**Key takeaways:**\n${takeawaysText}\n\n**Recommended reading:**\n${readingList}${disclaimer}`;
 }
 
 export function synthesizeEvidenceFallback(message: string, sources: AgentResearchSource[]): string {

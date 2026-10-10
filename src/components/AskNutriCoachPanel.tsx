@@ -3,6 +3,7 @@ import React, { useState } from "react";
 import { ArrowUp, BookOpen, Check, ChevronRight, ExternalLink, MessageSquare, Plus, RefreshCw, Sparkles, Utensils, X } from "lucide-react";
 import { addDays, formatDay } from "@/lib/dates";
 import { useNutriCoach } from "./NutriCoachContext";
+import { ChatMessageRenderer } from "./ChatMessageRenderer";
 import type { MealSnapshot, MealType, AgentResponseContract, AgentResearchSource, AgentPendingProposal } from "@/lib/types";
 
 interface DayPlanProposalCardData {
@@ -948,6 +949,7 @@ export function AskNutriCoachPanel() {
         body: JSON.stringify({
           message: text,
           userProfile: activeProfile,
+          chatbotPreferences: activeProfile.chatbot_preferences,
           targets: activeTargets,
           currentDate: state.today,
           plannedMeals: state.plannedMeals[state.activeMemberId] || [],
@@ -1642,7 +1644,7 @@ export function AskNutriCoachPanel() {
                 <span>{m.time}</span>
               </div>
 
-              <p className="text-xs text-ink-secondary leading-relaxed">{m.text}</p>
+              <ChatMessageRenderer content={m.text} isUser={isUser} />
 
               {/* Exclusion & Allergy Guardrail Warning Card */}
               {m.exclusionPrompt && (

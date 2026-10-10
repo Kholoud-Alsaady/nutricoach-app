@@ -1,14 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenAI, Type } from "@google/genai";
-import type {
-  AgentActionType,
-  AgentIntent,
-  AgentPendingProposal,
-  AgentProposedMeal,
-  AgentRemainingTargets,
-  AgentResearchSource,
-  AgentResponseContract,
+import {
+  DEFAULT_CHATBOT_PREFERENCES,
+  type AgentActionType,
+  type AgentIntent,
+  type AgentPendingProposal,
+  type AgentProposedMeal,
+  type AgentRemainingTargets,
+  type AgentResearchSource,
+  type AgentResponseContract,
+  type ChatbotPreferences,
 } from "@/lib/types";
+import { getSession } from "@/lib/auth";
 import { addDays, daysBetween, todayISO } from "@/lib/dates";
 import { searchTrustedNutritionSources, isTrustedResearchSource } from "@/lib/research/trusted-sources";
 import { formatNutritionResponse, synthesizeEvidenceFallback, getRelevanceSentence } from "@/lib/research/nutrition-formatter";
@@ -536,6 +539,88 @@ function isNutritionOrResearchQuery(text: string): boolean {
   return nutritionPatterns.some((p) => p.test(t));
 }
 
+function isGreetingMessage(message: string): boolean {
+  if (!message || typeof message !== "string") return false;
+  const clean = message.trim().toLowerCase().replace(/[!.,?؛،~-]+/g, " ").trim();
+
+  // Arabic greetings
+  const arabicGreetings = /^(مرحبا|مرحباً|أهلا|اهلا|أهلاً|اهلا وسهلا|أهلا وسهلا|السلام عليكم|صباح الخير|مساء الخير|هاي|هلا|حياك الله)$/i;
+  if (arabicGreetings.test(clean)) return true;
+
+  // English greetings
+  const englishGreetings = /^(hi|hello|hey|hey there|hello there|good morning|good afternoon|good evening|howdy|greetings|salut|bonjour|hola|ciao)(?:\s+(?:there|coach|nutricoach|team))?$/i;
+  if (englishGreetings.test(clean)) return true;
+
+  // Greetings with polite follow up: "hello, how are you", "hi, how are you doing", "hey what's up"
+  const greetingPlusPolite = /^(hi|hello|hey|good morning|good afternoon|good evening|أهلا|مرحبا|السلام عليكم)\b.*?(how are you|how are you doing|how's it going|what's up|how do you do|كيف حالك|شخبارك)/i;
+  if (greetingPlusPolite.test(clean) && clean.length < 50) {
+    if (!isNutritionOrResearchQuery(clean) && !isMealModificationRequest(clean)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function buildGreetingReply(
+  userProfile: any,
+  preferences: ChatbotPreferences,
+  message: string
+): string {
+  const isArabic = /[\u0600-\u06FF]/.test(message) || preferences.language === "ar";
+  let name = (preferences.preferred_name || "").trim();
+  if (!name && userProfile?.name) {
+    name = userProfile.name.trim().split(" ")[0];
+  }
+  if (name.toLowerCase() === "member" || name.toLowerCase() === "demo member") {
+    name = "";
+  }
+
+  if (isArabic) {
+    if (preferences.communication_style === "direct_concise") {
+      return name
+        ? `أهلاً ${name}. كيف يمكنني مساعدتك في خطتك الغذائية اليوم؟`
+        : "أهلاً بك. كيف يمكنني مساعدتك في خطتك الغذائية اليوم؟";
+    }
+    if (preferences.communication_style === "friendly_conversational") {
+      return name
+        ? `أهلاً ${name}! يسعدني التحدث معك اليوم. كيف تسير أمورك؟`
+        : "أهلاً بك! يسعدني التحدث معك اليوم. كيف تسير أمورك؟";
+    }
+    if (preferences.communication_style === "detailed_educational") {
+      return name
+        ? `أهلاً ${name}! مرحباً بك. أنا هنا لمساعدتك في استكشاف العلوم التغذوية ومراجعة خطتك الغذائية.`
+        : "أهلاً بك! مرحباً بك. أنا هنا لمساعدتك في استكشاف العلوم التغذوية ومراجعة خطتك الغذائية.";
+    }
+    return name
+      ? `مرحباً ${name}! كيف حالك اليوم؟ أنا هنا لمساعدتك في تحقيق أهدافك الغذائية.`
+      : "مرحباً بك! كيف حالك اليوم؟ أنا هنا لمساعدتك في تحقيق أهدافك الغذائية.";
+  }
+
+  switch (preferences.communication_style) {
+    case "friendly_conversational":
+      return name
+        ? `Hey ${name}! Great to see you. How's your day going? What are we working on today?`
+        : `Hey there! Great to see you. How's your day going? What can I help you with today?`;
+
+    case "direct_concise":
+      return name
+        ? `Hello ${name}. How can I assist with your nutrition today?`
+        : `Hello. How can I assist with your nutrition today?`;
+
+    case "detailed_educational":
+      return name
+        ? `Hello, ${name}! Welcome back. Whether you'd like to explore nutritional science, refine your daily targets, or review your meal plan, I'm here to help.`
+        : `Hello! Welcome back. Whether you'd like to explore nutritional science, refine your daily targets, or review your meal plan, I'm here to help.`;
+
+    case "professional_supportive":
+    default:
+      return name
+        ? `Hello, ${name}! How are you doing today? I'm here to help you work toward your nutrition goals.`
+        : `Hello! How are you doing today? I'm here to help you work toward your nutrition goals.`;
+  }
+}
+
 function getTailoredFollowUps(message: string): string[] {
   const m = message.toLowerCase();
   if (m.includes("sugar")) {
@@ -576,7 +661,9 @@ function getTailoredFollowUps(message: string): string[] {
 async function handleNutritionOrResearchRequest(
   message: string,
   ai: GoogleGenAI,
-  model: string
+  model: string,
+  preferences: ChatbotPreferences = DEFAULT_CHATBOT_PREFERENCES,
+  userProfile?: any
 ): Promise<NextResponse> {
   const isResearch = isExplicitResearchRequest(message);
   console.log(`[NutriCoach] Executing evidence-based ${isResearch ? "research" : "nutrition"} request: "${message}"`);
@@ -602,7 +689,33 @@ async function handleNutritionOrResearchRequest(
     }
 
     const preferredSources = sources.slice(0, 2);
-    const isDetailedRequest = /\b(detailed|in-depth|deep dive|comprehensive|literature review|explain in detail|full analysis|long answer)\b/i.test(message);
+    const isDetailedExplicit = /\b(detailed|in-depth|deep dive|comprehensive|literature review|explain in detail|full analysis|long answer)\b/i.test(message);
+    const isDetailedRequest = isDetailedExplicit || preferences.response_detail === "detailed";
+    const isConcisePref = preferences.response_detail === "concise" && !isDetailedExplicit;
+
+    const targetLengthDesc = isConcisePref
+      ? "approximately 60–100 words (excluding article titles and links)"
+      : isDetailedRequest
+      ? "approximately 180–250 words (excluding article titles and links)"
+      : "approximately 80–140 words (excluding article titles and links)";
+
+    let toneDirective = "Maintain a professional, supportive, and balanced tone.";
+    if (preferences.communication_style === "friendly_conversational") {
+      toneDirective = "Maintain a warm, friendly, conversational tone while adhering strictly to facts.";
+    } else if (preferences.communication_style === "direct_concise") {
+      toneDirective = "Maintain a direct, concise tone with zero fluff or conversational filler.";
+    } else if (preferences.communication_style === "detailed_educational") {
+      toneDirective = "Maintain an educational, explanatory tone that clearly highlights nutritional mechanisms.";
+    }
+
+    let encouragementDirective = "";
+    if (preferences.encouragement_level === "gentle") {
+      encouragementDirective = "Provide gentle, low-pressure coaching reassurance.";
+    } else if (preferences.encouragement_level === "minimal") {
+      encouragementDirective = "Keep encouragement minimal and purely factual without cheerleading.";
+    } else {
+      encouragementDirective = "Provide balanced, realistic coaching encouragement.";
+    }
 
     const sourcesContext = preferredSources
       .map(
@@ -617,12 +730,12 @@ We retrieved the following verified authoritative nutrition sources (up to 2):
 ${sourcesContext}
 
 You must write a concise, conversational, evidence-based answer strictly adhering to the following structure and target length:
-Target length: ${isDetailedRequest ? "approximately 180–250 words" : "approximately 80–140 words (excluding article titles and links)"}.
-Keep it concise, user-friendly, scannable, and readable on a mobile screen. Avoid lengthy introductions, multi-paragraph essays, full conclusions, and redundant lists of organizations.
+Target length: ${targetLengthDesc}.
+Tone: ${toneDirective} ${encouragementDirective}
+Keep it user-friendly, scannable, and readable on a mobile screen. Avoid lengthy introductions, multi-paragraph essays, full conclusions, and redundant lists of organizations.
 
 STRUCTURE:
-**Short answer:**
-1–2 clear sentences directly answering the user's question.
+Begin directly with 1–2 clear sentences directly answering the user's question without any "Short answer:" heading.
 
 **Key takeaways:**
 • 2–3 concise bullet points covering the most important evidence-based facts. Include numeric recommendations only when directly relevant (e.g., WHO free sugars <10%, 25–30g fiber, 1.6–2.2g/kg protein).
@@ -741,7 +854,7 @@ Also accepted: NIH, FAO, EFSA, USDA, peer-reviewed journals, and established aca
 If the user explicitly names a source such as WHO, CDC, NHS, FAO, or PubMed, prioritize that source.
 
 Answer Quality Standards:
-- Structure nutrition answers concisely: **Short answer:** (1–2 sentences), **Key takeaways:** (2–3 bullet points), and **Recommended reading:** (up to 2 verified sources). Keep standard answers between 80–130 words.
+- Structure nutrition answers concisely: begin directly with a clear answer (1–2 sentences, without any "Short answer:" heading), followed by **Key takeaways:** (2–3 bullet points), and **Recommended reading:** (up to 2 verified sources). Keep standard answers between 80–130 words.
 - Explain scientific concepts simply in friendly, accessible language.
 - Distinguish correlation from causation.
 - Explain important limitations and avoid overstating benefits.
@@ -796,6 +909,7 @@ Nutrition rules:
 - Do not shame food choices. Ordinary foods such as pasta, pizza, burgers, koshary, rice, bread or desserts are not prohibited.
 
 Style: concise, practical, warm, conversational. No emojis. suggestedFollowUps: 0-3 short replies that are genuinely useful next steps for THIS conversation.
+Respect member communication preferences (tone, encouragement level, response detail). Acknowledge progress without excessive praise. Respond to setbacks, missed meals, or unplanned snacks without guilt or shame.
 
 Use the supplied state as the source of truth. Do not invent existing meals or logs.
 Return only valid JSON matching the response schema.`;
@@ -897,6 +1011,43 @@ export async function POST(req: NextRequest) {
   const safetyResult = checkSafety(message);
   if (safetyResult) return NextResponse.json(safetyResult);
 
+  // Authoritative user profile & preferences from authenticated session (with fallback)
+  let userProfile = body.userProfile || {};
+  let chatbotPreferences: ChatbotPreferences =
+    body.chatbotPreferences || userProfile.chatbot_preferences || DEFAULT_CHATBOT_PREFERENCES;
+
+  try {
+    const session = await getSession();
+    if (session?.profile) {
+      userProfile = {
+        ...userProfile,
+        ...session.profile,
+      };
+      if (session.profile.chatbot_preferences) {
+        chatbotPreferences = session.profile.chatbot_preferences;
+      }
+    }
+  } catch {
+    // Session check is non-blocking (e.g. demo mode)
+  }
+
+  // Fast-path: Greetings (deterministic, personalized, natural, 0-latency, avoids unnecessary research)
+  if (isGreetingMessage(message)) {
+    const greetingText = buildGreetingReply(userProfile, chatbotPreferences, message);
+    return NextResponse.json({
+      replyText: greetingText,
+      intent: "general_conversation",
+      action: "none",
+      shouldMutatePlan: false,
+      requiresConfirmation: false,
+      suggestedFollowUps: [
+        "Review today's nutrition targets",
+        "Ask a nutrition question",
+        "Suggest a high-protein meal",
+      ],
+    } satisfies AgentResponseContract);
+  }
+
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey === "your_gemini_api_key_here") {
     console.error("[NutriCoach] /api/chat: GEMINI_API_KEY is not configured.");
@@ -916,12 +1067,11 @@ export async function POST(req: NextRequest) {
   // Dedicated evidence-based nutrition answering & research retrieval path
   // If the user asks to modify, replace, or adapt meals, that request proceeds to the meal planning workflow.
   if (!isMealModificationRequest(message) && isNutritionOrResearchQuery(message)) {
-    return await handleNutritionOrResearchRequest(message, ai, model);
+    return await handleNutritionOrResearchRequest(message, ai, model, chatbotPreferences, userProfile);
   }
 
   // STEP 2: Normalise the application state supplied by the client
   const currentDate: string = isISODate(body.currentDate) ? body.currentDate : todayISO();
-  const userProfile = body.userProfile || {};
   const targets: Macros = {
     calories: num(body.targets?.calories),
     protein: num(body.targets?.protein),
@@ -1070,12 +1220,19 @@ export async function POST(req: NextRequest) {
   const context = `CURRENT DATE: ${currentDate} (${weekdayOf(currentDate)}). Tomorrow is ${addDays(currentDate, 1)} (${weekdayOf(addDays(currentDate, 1))}).
 
 MEMBER PROFILE:
+- Preferred Name: ${chatbotPreferences.preferred_name || userProfile.name?.split(" ")[0] || "none"}
 - Goal: ${userProfile.goal || "not specified"}
 - Sex/age/height/weight: ${userProfile.sex || "?"}, ${userProfile.age || "?"}y, ${userProfile.height || "?"}cm, ${userProfile.weight || "?"}kg
 - Dietary style: ${userProfile.dietary_style || "standard"}
 - Dietary preferences: ${list(userProfile.dietary_preferences)}
 - Disliked foods (avoid): ${list(userProfile.disliked_foods)}
 - Allergies (HARD restriction, never include): ${list(userProfile.allergies)}
+
+CHATBOT PREFERENCES:
+- Communication style: ${chatbotPreferences.communication_style}
+- Encouragement level: ${chatbotPreferences.encouragement_level}
+- Response detail: ${chatbotPreferences.response_detail}
+- Preferred language: ${chatbotPreferences.language}
 
 DAILY TARGETS: ${targets.calories} kcal, ${targets.protein}g protein, ${targets.carbs}g carbs, ${targets.fat}g fat.
 
@@ -1127,7 +1284,7 @@ ${history.length ? history.map((h) => `${h.sender}: ${h.text}`).join("\n") : "(n
     let raw = await callModel();
     if (!raw || typeof raw.replyText !== "string") {
       console.error("[NutriCoach] /api/chat: model returned invalid JSON or service unavailable.");
-      if (!isMealModificationRequest(message)) {
+      if (!isMealModificationRequest(message) && isNutritionOrResearchQuery(message)) {
         try {
           const fallbackSources = await searchTrustedNutritionSources(message);
           if (fallbackSources.length > 0) {
