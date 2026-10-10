@@ -373,7 +373,7 @@ export function MealsStream() {
           className="w-full py-2 px-3 rounded-lg border border-dashed border-border hover:border-brand/50 hover:bg-surface-subtle text-ink-secondary hover:text-brand text-xs font-medium transition-all flex items-center justify-center gap-1.5"
         >
           <Plus className="w-3.5 h-3.5" />
-          <span>+ Add Meal / Snack</span>
+          <span>Add Meal / Snack</span>
         </button>
       </div>
 

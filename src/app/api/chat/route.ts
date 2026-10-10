@@ -11,6 +11,7 @@ import type {
 } from "@/lib/types";
 import { addDays, daysBetween, todayISO } from "@/lib/dates";
 import { searchTrustedNutritionSources, isTrustedResearchSource } from "@/lib/research/trusted-sources";
+import { formatNutritionResponse, synthesizeEvidenceFallback, getRelevanceSentence } from "@/lib/research/nutrition-formatter";
 import { planWeek, prefsFromProfile } from "@/lib/planner";
 
 // =============================================================================
@@ -535,146 +536,6 @@ function isNutritionOrResearchQuery(text: string): boolean {
   return nutritionPatterns.some((p) => p.test(t));
 }
 
-function getRelevanceSentence(s: AgentResearchSource): string {
-  const t = s.title.toLowerCase();
-  const n = s.sourceName.toLowerCase();
-
-  // Check fiber first to avoid false-matching titles containing "blood sugar"
-  if (t.includes("fiber") || t.includes("fibre")) {
-    if (t.includes("carbohydrate quality") || t.includes("systematic review")) {
-      return "Landmark meta-analysis demonstrating 15–30% mortality and chronic disease reductions with 25–29g daily fiber.";
-    }
-    if (n.includes("cdc") || t.includes("blood sugar")) {
-      return "Explains how dietary fiber regulates blood glucose, lowers LDL cholesterol, and supports heart health.";
-    }
-    return "Evidence-based guidance on reaching the 30g daily fiber target to reduce cardiovascular and digestive risks.";
-  }
-
-  if (t.includes("sugars intake for adults") || (n.includes("who") && t.includes("sugar"))) {
-    return "Official WHO guideline recommending reducing free sugars to less than 10% of total daily energy intake.";
-  }
-  if (t.includes("how does sugar in our diet affect our health") || (n.includes("nhs") && t.includes("sugar"))) {
-    return "Clinical NHS guidance detailing the health impacts of free sugars and practical tips on cutting down.";
-  }
-  if (t.includes("added sugars and nutrition") || (n.includes("cdc") && t.includes("sugar"))) {
-    return "Evidence-based CDC reference on added sugars, chronic disease risks, and natural food alternatives.";
-  }
-  if (t.includes("use of non-sugar sweeteners")) {
-    return "Systematic review and guideline advising on non-sugar sweeteners for body weight and metabolic health.";
-  }
-  if (t.includes("protein supplementation") && t.includes("resistance training")) {
-    return "Key meta-analysis confirming 1.6–2.2 g/kg/day optimizes resistance-training muscle mass and strength gains.";
-  }
-  if (t.includes("protein") && (n.includes("cdc") || n.includes("nih"))) {
-    return "Authoritative guidance on protein requirements, timing, and physiological roles in tissue repair.";
-  }
-  if (t.includes("effects of intermittent fasting") || (t.includes("fasting") && t.includes("health, aging"))) {
-    return "Comprehensive NEJM review examining cellular switching, longevity mechanisms, and clinical outcomes.";
-  }
-  if (t.includes("intermittent fasting") && (t.includes("obesity") || t.includes("umbrella review"))) {
-    return "Umbrella review analyzing clinical trials on weight reduction and cardiometabolic effects of fasting.";
-  }
-
-  // Fallback to the first sentence of the source summary
-  if (s.summary) {
-    const firstSentence = s.summary.split(/\.\s+/)[0].trim();
-    return firstSentence.endsWith(".") ? firstSentence : firstSentence + ".";
-  }
-  return `Evidence-based research and official guidance published by ${s.sourceName}.`;
-}
-
-/**
- * Deterministic fallback synthesis using verified authoritative guidelines
- * when Gemini is unreachable or experiences transient service issues.
- * Formats concise, user-friendly responses (~80–140 words excluding source titles/links).
- */
-function synthesizeEvidenceFallback(message: string, sources: AgentResearchSource[]): string {
-  const topSources = sources.slice(0, 2);
-  const m = message.toLowerCase();
-
-  let shortAnswer = "";
-  const takeaways: string[] = [];
-  let medicalNote = "";
-
-  if (m.includes("added sugar") || m.includes("sugar-free") || m.includes("sugar free") || m.includes("sugar")) {
-    if (m.includes("difference") || (m.includes("added") && m.includes("natural"))) {
-      shortAnswer =
-        "Naturally occurring sugars in whole foods come packaged with protective dietary fiber and micronutrients, whereas added or free sugars deliver concentrated energy without fiber and are metabolized quickly.";
-      takeaways.push(
-        "Whole fruits and plain dairy contain intrinsic sugars bound to fiber and water, which moderate digestion and glycemic response.",
-        "Free sugars (refined sugars, syrups, sweetened beverages) deliver rapid energy without satiety and should be limited to under 10% of daily calories.",
-        "Cutting added sugars supports cardiometabolic and dental health without any need to eliminate nutrient-rich whole fruits."
-      );
-    } else if (m.includes("sugar-free") || m.includes("sugar free")) {
-      shortAnswer =
-        "A diet low in added sugars provides strong metabolic and dental benefits, but completely eliminating wholesome foods with natural sugars—such as fresh fruit and plain dairy—is unnecessary.";
-      takeaways.push(
-        "Global health guidelines advise minimizing free and added sugars (soft drinks, confectionery, syrups), not wholesome fresh fruits or dairy.",
-        "Limiting free sugars to under 10% (ideally under 5%) of daily energy intake significantly lowers the risk of tooth decay and cardiometabolic disease.",
-        "A practical, low-added-sugar pattern supports steady energy levels and healthy weight management without extreme food restrictions."
-      );
-    } else {
-      shortAnswer =
-        "Reducing added sugar intake lowers your risk of tooth decay, unhealthy weight gain, and chronic metabolic conditions including type 2 diabetes and cardiovascular disease.";
-      takeaways.push(
-        "The WHO and NHS recommend limiting free sugars to less than 10% of total daily energy (roughly 30g to 50g for adults), with further health benefits below 5%.",
-        "Liquid and refined sugars lack dietary fiber, leading to rapid blood sugar spikes and excess calorie intake without promoting satiety.",
-        "Replacing sugar-sweetened foods with whole foods improves long-term cardiovascular health and helps maintain steady daily energy."
-      );
-    }
-  } else if (m.includes("protein") && (m.includes("muscle") || m.includes("hypertrophy"))) {
-    shortAnswer =
-      "Consuming adequate dietary protein combined with progressive resistance training is well established to stimulate muscle protein synthesis and promote muscle growth.";
-    takeaways.push(
-      "Comprehensive meta-analyses show that daily protein intakes between 1.6 and 2.2 grams per kilogram of body weight optimize gains in muscle mass and strength.",
-      "Consuming protein beyond approximately 1.6 to 2.2 g/kg daily generally provides diminishing returns for muscle hypertrophy.",
-      "Distributing protein across daily meals (roughly 25–40g per meal from quality lean sources) effectively supports sustained muscle recovery."
-    );
-  } else if (m.includes("fiber") || m.includes("fibre")) {
-    shortAnswer =
-      "Eating more dietary fiber improves digestive regulation, stabilizes blood sugar levels, and significantly lowers long-term risk of cardiovascular disease and type 2 diabetes.";
-    takeaways.push(
-      "Authoritative bodies (WHO, CDC, NHS) recommend adults target 25 to 30 grams of dietary fiber daily from whole foods.",
-      "Soluble fiber slows carbohydrate absorption and helps reduce LDL cholesterol, while insoluble fiber supports bowel regularity and gut microbiome health.",
-      "Higher fiber intakes from legumes, vegetables, whole grains, and fruits are clinically associated with a 15–30% reduction in all-cause mortality."
-    );
-  } else if (m.includes("fasting")) {
-    shortAnswer =
-      "Research shows intermittent fasting (such as 16/8 time-restricted eating) is an effective method for weight management and metabolic health, primarily by facilitating a caloric deficit.";
-    takeaways.push(
-      "Randomized clinical trials demonstrate that intermittent fasting achieves weight loss and metabolic improvements comparable to standard continuous calorie restriction.",
-      "Fasting can support insulin sensitivity and cellular repair mechanisms, but long-term success depends on overall diet quality and individual adherence.",
-      "Intermittent fasting is an optional eating schedule rather than a mandatory protocol, and does not produce clinically superior fat loss compared to balanced calorie-matched diets."
-    );
-    medicalNote = "\n\n_Note: Fasting may not be appropriate for individuals who are pregnant, take blood sugar medications, or have a history of disordered eating._";
-  } else {
-    shortAnswer =
-      "Evidence-based nutrition emphasizes a dietary pattern rich in whole, minimally processed foods, adequate protein, dietary fiber, and healthy fats tailored to your energy needs.";
-    takeaways.push(
-      "Long-term health is driven by overall dietary consistency, nutrient density, and caloric balance rather than isolating individual foods.",
-      "Prioritizing unprocessed vegetables, legumes, whole grains, and lean proteins provides essential micronutrients and promotes lasting satiety."
-    );
-  }
-
-  const takeawaysText = takeaways.map((t) => `• ${t}`).join("\n");
-
-  let readingList = "";
-  if (topSources.length === 0) {
-    readingList = "• Additional relevant research for this specific topic could not be verified from primary health authorities.";
-  } else {
-    const items = topSources.map((s) => {
-      const relevance = getRelevanceSentence(s);
-      return `• **${s.title}** (${s.sourceName}) — ${relevance} [Read article](${s.url})`;
-    });
-    if (topSources.length === 1) {
-      items.push("• Additional relevant verified evidence could not be confirmed from primary health authorities.");
-    }
-    readingList = items.join("\n");
-  }
-
-  return `**Short answer:**\n${shortAnswer}\n\n**Key takeaways:**\n${takeawaysText}\n\n**Recommended reading:**\n${readingList}${medicalNote}`;
-}
-
 function getTailoredFollowUps(message: string): string[] {
   const m = message.toLowerCase();
   if (m.includes("sugar")) {
@@ -782,7 +643,7 @@ GUIDELINES:
    - Do NOT suggest modifying meal plans or changing nutrition targets.`;
 
     let replyText = "";
-    for (const mName of Array.from(new Set([model, "gemini-3.7-flash", "gemini-3.5-flash", "gemini-3.8-flash"]))) {
+    for (const mName of Array.from(new Set([model, "gemini-3.7-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-3.1-flash-lite", "gemini-3.8-flash"]))) {
       try {
         const generatePromise = ai.models.generateContent({
           model: mName,
@@ -802,10 +663,8 @@ GUIDELINES:
       }
     }
 
-    // High-quality deterministic synthesis fallback if Gemini API is unreachable or times out
-    if (!replyText) {
-      replyText = synthesizeEvidenceFallback(message, preferredSources);
-    }
+    // Enforce concise deterministic structure at final output layer
+    replyText = formatNutritionResponse(replyText, message, preferredSources, isDetailedRequest);
 
     return NextResponse.json({
       replyText,
@@ -823,7 +682,7 @@ GUIDELINES:
       if (fallbackSources.length > 0) {
         const topFallback = fallbackSources.slice(0, 2);
         return NextResponse.json({
-          replyText: synthesizeEvidenceFallback(message, topFallback),
+          replyText: formatNutritionResponse("", message, topFallback, false),
           intent: isResearch ? "research_request" : "nutrition_question",
           action: isResearch ? "search_research" : "none",
           shouldMutatePlan: false,
@@ -882,7 +741,7 @@ Also accepted: NIH, FAO, EFSA, USDA, peer-reviewed journals, and established aca
 If the user explicitly names a source such as WHO, CDC, NHS, FAO, or PubMed, prioritize that source.
 
 Answer Quality Standards:
-- Provide a clear, concise answer first, followed by the main supporting evidence.
+- Structure nutrition answers concisely: **Short answer:** (1–2 sentences), **Key takeaways:** (2–3 bullet points), and **Recommended reading:** (up to 2 verified sources). Keep standard answers between 80–130 words.
 - Explain scientific concepts simply in friendly, accessible language.
 - Distinguish correlation from causation.
 - Explain important limitations and avoid overstating benefits.
@@ -894,7 +753,7 @@ Answer Quality Standards:
 
 Do not invent articles, URLs, publication dates, or claims.
 Only return source links obtained from verified search results.
-Return 2–4 high-quality sources rather than a large list.
+Return exactly 2 high-quality sources (or 1 if only 1 is verified).
 
 Each source in researchSources should contain:
 - title
@@ -1235,7 +1094,7 @@ RECENT CONVERSATION:
 ${history.length ? history.map((h) => `${h.sender}: ${h.text}`).join("\n") : "(no previous messages)"}`;
 
   // STEP 3: Call Gemini (with model fallback for demand spikes and corrective retry if badly unbalanced)
-  const candidateModels = Array.from(new Set([model, "gemini-3.7-flash", "gemini-3.5-flash", "gemini-3.8-flash"]));
+  const candidateModels = Array.from(new Set([model, "gemini-3.7-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-3.1-flash-lite", "gemini-3.8-flash"]));
   const callModel = async (correction?: string): Promise<any | null> => {
     for (const mName of candidateModels) {
       for (let attempt = 0; attempt < 2; attempt++) {
@@ -1254,6 +1113,9 @@ ${history.length ? history.map((h) => `${h.sender}: ${h.text}`).join("\n") : "(n
           if (parsed && typeof parsed.replyText === "string") return parsed;
         } catch (err: any) {
           console.warn(`[NutriCoach] /api/chat model ${mName} attempt ${attempt + 1} notice:`, err?.message || err);
+          if (err?.message?.includes("429") || err?.status === "RESOURCE_EXHAUSTED" || err?.message?.includes("quota")) {
+            break;
+          }
           if (attempt === 0) await new Promise((r) => setTimeout(r, 400));
         }
       }
@@ -1388,13 +1250,19 @@ ${history.length ? history.map((h) => `${h.sender}: ${h.text}`).join("\n") : "(n
       result.requiresConfirmation = false;
       result.proposedMeal = undefined;
       result.proposedMeals = undefined;
-      if (!result.researchSources?.length) {
-        const sources = await searchTrustedNutritionSources(message);
-        if (sources.length > 0) {
-          result.researchSources = sources.slice(0, 2);
-        }
+
+      let sources = Array.isArray(result.researchSources) && result.researchSources.length > 0
+        ? result.researchSources.filter((s: any) => isTrustedResearchSource(s?.url))
+        : [];
+      if (!sources.length) {
+        sources = await searchTrustedNutritionSources(message);
       }
-      if (result.intent === "research_request" && !result.researchSources?.length) {
+      result.researchSources = sources.slice(0, 2);
+
+      const isDetailed = /\b(detailed|in-depth|deep dive|comprehensive|literature review|explain in detail|full analysis|long answer)\b/i.test(message);
+      result.replyText = formatNutritionResponse(result.replyText, message, result.researchSources, isDetailed);
+
+      if (result.intent === "research_request" && !result.researchSources.length) {
         result.replyText = "I couldn't find a trusted research publication or official guideline matching that specific query. Please try searching for a broader nutrition topic or specify an authority like WHO, PubMed, CDC, or NHS.";
       }
     }

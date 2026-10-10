@@ -384,7 +384,7 @@ export function LandingPortal() {
                 className="text-xs font-medium text-brand hover:text-brand-hover bg-brand-tint px-3 py-1.5 rounded-md border border-[#D5E6D2] flex items-center gap-1.5 transition-colors"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>+ Create New Member</span>
+                <span>Create New Member</span>
               </button>
             </div>
           </div>

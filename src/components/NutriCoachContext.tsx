@@ -37,6 +37,8 @@ export interface WeeklyRebalanceInfo {
   enabled: boolean;
   todayCaloriesLogged: number;
   targetCalories: number;
+  targetDailyCalories: number;
+  isApplied: boolean;
 }
 
 export interface AgentActionCard {
@@ -67,6 +69,12 @@ interface NutriCoachContextType {
   measuredImpact: ReturnType<typeof measureImpact>;
   weeklySmoothingEnabled: boolean;
   toggleWeeklySmoothing: () => void;
+  isWeeklySmoothingApplied: boolean;
+  isApplyingWeeklySmoothing: boolean;
+  weeklySmoothingError: string | null;
+  weeklySmoothingSuccess: string | null;
+  applyWeeklySmoothing: () => Promise<{ success: boolean; error?: string }>;
+  keepOriginalTargets: () => Promise<{ success: boolean; error?: string }>;
   weeklyRebalanceInfo: WeeklyRebalanceInfo;
   selectedPlanDayOffset: number;
   setSelectedPlanDayOffset: (offset: number) => void;
@@ -169,10 +177,12 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
     fat: Math.max(0, activeTargets.fat - todayLoggedMacros.fat),
   };
 
-  const [weeklySmoothingEnabled, setWeeklySmoothingEnabled] = useState(true);
+  const [isWeeklySmoothingApplied, setIsWeeklySmoothingApplied] = useState(false);
+  const [isApplyingWeeklySmoothing, setIsApplyingWeeklySmoothing] = useState(false);
+  const [weeklySmoothingError, setWeeklySmoothingError] = useState<string | null>(null);
+  const [weeklySmoothingSuccess, setWeeklySmoothingSuccess] = useState<string | null>(null);
+  const [backupPlannedMeals, setBackupPlannedMeals] = useState<Record<string, PlannedMeal[]>>({});
   const [selectedPlanDayOffset, setSelectedPlanDayOffset] = useState<number>(0);
-
-  const toggleWeeklySmoothing = () => setWeeklySmoothingEnabled((prev) => !prev);
 
   // Weekly Compensatory Rebalancing Logic
   // Delta = Actual Calories Logged Today - Daily Calorie Target
@@ -185,16 +195,22 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
   const remainingDaysCount = 6;
   const rawAdjustment = remainingDaysCount > 0 ? Math.round(-delta / remainingDaysCount) : 0;
   const dailyAdjustment = Math.max(-150, Math.min(150, rawAdjustment));
+  const targetDailyCalories = Math.max(1200, Math.min(3500, activeTargets.calories + dailyAdjustment));
+  const effectiveDailyAdjustment = targetDailyCalories - activeTargets.calories;
 
   const weeklyRebalanceInfo: WeeklyRebalanceInfo = {
     delta,
     isSignificant: isSignificantDelta,
-    dailyAdjustment,
+    dailyAdjustment: effectiveDailyAdjustment,
     remainingDaysCount,
-    enabled: weeklySmoothingEnabled,
+    enabled: isWeeklySmoothingApplied,
     todayCaloriesLogged,
     targetCalories: activeTargets.calories,
+    targetDailyCalories,
+    isApplied: isWeeklySmoothingApplied,
   };
+
+  const weeklySmoothingEnabled = isWeeklySmoothingApplied;
 
   const pendingProposals = state.actions.filter(
     (a) => a.member_id === state.activeMemberId && (a.execution_status === "proposed" || a.execution_status === "pending_coach")
@@ -207,10 +223,16 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
   const measuredImpact = measureImpact(state.actions, state.aiUsage, state.gym, state.members.length);
 
   const setActiveMember = (id: string) => {
+    setIsWeeklySmoothingApplied(false);
+    setWeeklySmoothingError(null);
+    setWeeklySmoothingSuccess(null);
     setState((prev) => ({ ...prev, activeMemberId: id, activeRole: "member" }));
   };
 
   const selectMemberAndEnter = (id: string) => {
+    setIsWeeklySmoothingApplied(false);
+    setWeeklySmoothingError(null);
+    setWeeklySmoothingSuccess(null);
     setState((prev) => ({ ...prev, activeMemberId: id, activeRole: "member", activeTab: "today" }));
     setCurrentView("member");
   };
@@ -823,6 +845,356 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
     }
   };
 
+  const applyWeeklySmoothing = async (): Promise<{ success: boolean; error?: string }> => {
+    if (isApplyingWeeklySmoothing) {
+      return { success: false, error: "Smoothing operation is already in progress." };
+    }
+
+    if (!weeklyRebalanceInfo.isSignificant) {
+      return { success: false, error: "No significant calorie deviation detected for weekly auto-balance." };
+    }
+
+    setIsApplyingWeeklySmoothing(true);
+    setWeeklySmoothingError(null);
+    setWeeklySmoothingSuccess(null);
+
+    const memberId = state.activeMemberId;
+    const today = state.today;
+    const currentPlanned = state.plannedMeals[memberId] || [];
+
+    // Remaining upcoming days (day +1 through day +6)
+    const remainingDays: string[] = [];
+    for (let offset = 1; offset <= weeklyRebalanceInfo.remainingDaysCount; offset++) {
+      remainingDays.push(addDays(today, offset));
+    }
+
+    // 1. Calculate validated daily target for remaining days
+    const targetCalories = weeklyRebalanceInfo.targetDailyCalories;
+    const effectiveAdjustment = weeklyRebalanceInfo.dailyAdjustment;
+    const macroRatio = targetCalories / activeTargets.calories;
+    const dayTargetBudget: Macros = {
+      calories: targetCalories,
+      protein: Math.round(activeTargets.protein * macroRatio),
+      carbs: Math.round(activeTargets.carbs * macroRatio),
+      fat: Math.round(activeTargets.fat * macroRatio),
+    };
+
+    // 2. Save current planned meals for remaining days to backup if not already saved
+    if (!backupPlannedMeals[memberId] || backupPlannedMeals[memberId].length === 0) {
+      const existingRemaining = currentPlanned.filter((p) => remainingDays.includes(p.date));
+      setBackupPlannedMeals((prev) => ({
+        ...prev,
+        [memberId]: existingRemaining,
+      }));
+    }
+
+    // 3. Recalculate remaining-day meal plans using planSlots
+    const prefs = prefsFromProfile(activeProfile);
+    const preferTags = activeProfile.dietary_preferences.includes("egyptian") ? ["egyptian"] : [];
+    const allSlots: MealType[] = ["breakfast", "lunch", "snack", "dinner"];
+
+    const newDaysPayload: Array<{
+      targetDate: string;
+      meals: Array<{ slot: MealType; meal: MealSnapshot }>;
+    }> = [];
+
+    const updatedPlannedMealsByDate: Record<string, Array<{ meal_type: MealType; meal: MealSnapshot }>> = {};
+
+    let previousDayMeals: Array<{ meal_type: MealType; meal: MealSnapshot }> = [];
+    const todayMeals = currentPlanned.filter((p) => p.date === today);
+    if (todayMeals.length > 0) {
+      previousDayMeals = todayMeals.map((p) => ({
+        meal_type: p.meal_type,
+        meal: {
+          meal_name: p.meal_name,
+          calories: p.calories,
+          protein: p.protein,
+          carbs: p.carbs,
+          fat: p.fat,
+          ingredients: p.ingredients,
+          tags: p.tags,
+        },
+      }));
+    }
+
+    for (const date of remainingDays) {
+      const dayLogs = (state.mealLogs[memberId] || []).filter((l) => l.date === date);
+      let dayBudget = { ...dayTargetBudget };
+      for (const log of dayLogs) {
+        dayBudget = subtractMacros(dayBudget, log);
+      }
+
+      const unloggedSlots = allSlots.filter((slot) => !dayLogs.some((l) => l.meal_type === slot));
+      if (unloggedSlots.length === 0) continue;
+
+      // Avoid previous day's meal names to maintain variety
+      const excludeNames = previousDayMeals.map((p) => p.meal.meal_name);
+
+      const slots = planSlots(dayBudget, unloggedSlots, prefs, {
+        preferTags,
+        excludeNames,
+        variety: remainingDays.indexOf(date) + 1,
+      });
+
+      updatedPlannedMealsByDate[date] = slots;
+      previousDayMeals = slots;
+
+      newDaysPayload.push({
+        targetDate: date,
+        meals: slots.map((s) => ({ slot: s.meal_type, meal: s.meal })),
+      });
+    }
+
+    try {
+      // 4. Persist to Supabase via /api/mutate-meal batch endpoint
+      const res = await fetch("/api/mutate-meal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          memberId,
+          days: newDaysPayload,
+          actionType: "weekly_auto_balance",
+          userRequest: `Apply weekly auto-balance (${effectiveAdjustment > 0 ? `+${effectiveAdjustment}` : effectiveAdjustment} kcal/day)`,
+          summary: `Weekly auto-balance applied: remaining ${newDaysPayload.length} days rebalanced to ${targetCalories} kcal/day`,
+          gymId: state.gym.id,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data?.error || "Failed to persist weekly smoothing to database.");
+      }
+
+      // 5. Success verified: Update local state
+      setState((prev) => {
+        let currentPlannedList = [...(prev.plannedMeals[memberId] || [])];
+        for (const [date, slots] of Object.entries(updatedPlannedMealsByDate)) {
+          for (const item of slots) {
+            const idx = currentPlannedList.findIndex((p) => p.date === date && p.meal_type === item.meal_type);
+            const updatedPlanned: PlannedMeal = {
+              id: idx >= 0 ? currentPlannedList[idx].id : `p-${memberId}-${date}-${item.meal_type}`,
+              plan_id: idx >= 0 ? currentPlannedList[idx].plan_id : `plan-${memberId}`,
+              member_id: memberId,
+              date,
+              meal_type: item.meal_type,
+              meal_name: item.meal.meal_name,
+              calories: item.meal.calories,
+              protein: item.meal.protein,
+              carbs: item.meal.carbs,
+              fat: item.meal.fat,
+              ingredients: item.meal.ingredients,
+              tags: item.meal.tags || [item.meal_type, "agent", "smoothed"],
+              source: "agent",
+              updated_at: new Date().toISOString(),
+            };
+
+            if (idx >= 0) {
+              currentPlannedList[idx] = updatedPlanned;
+            } else {
+              currentPlannedList.push(updatedPlanned);
+            }
+          }
+        }
+
+        const impact = impactFor("adapt_daily_plan", prev.gym.estimated_coach_hourly_value);
+        const actionPayload: AgentAction = {
+          id: `act-${Date.now()}`,
+          member_id: memberId,
+          gym_id: prev.gym.id,
+          initiated_by: memberId,
+          action_type: "weekly_auto_balance" as any,
+          user_request: `Apply weekly smoothing (${effectiveAdjustment > 0 ? `+${effectiveAdjustment}` : effectiveAdjustment} kcal/day)`,
+          summary: `Weekly auto-balance applied: ${newDaysPayload.length} remaining days adjusted to ${targetCalories} kcal/day`,
+          tools_used: [
+            { tool: "weekly_auto_balance", summary: `Redistributed intake delta of ${weeklyRebalanceInfo.delta} kcal` },
+            { tool: "replan_meals", summary: `Recalculated meals for ${newDaysPayload.length} days to match target` },
+          ],
+          proposed_change: null,
+          requires_coach_approval: false,
+          approved: true,
+          execution_status: "executed",
+          decided_by: memberId,
+          decided_at: new Date().toISOString(),
+          decision_note: "Applied weekly smoothing to synchronize planned meals",
+          estimated_manual_minutes: 15,
+          estimated_agent_minutes: 0.5,
+          estimated_minutes_saved: 15,
+          estimated_cost_value: 50.0,
+          created_at: new Date().toISOString(),
+        };
+
+        return {
+          ...prev,
+          plannedMeals: { ...prev.plannedMeals, [memberId]: currentPlannedList },
+          actions: [actionPayload, ...prev.actions],
+        };
+      });
+
+      setIsWeeklySmoothingApplied(true);
+      setIsApplyingWeeklySmoothing(false);
+      setWeeklySmoothingSuccess(`Weekly smoothing applied: remaining days adjusted to ${targetCalories} kcal/day.`);
+      return { success: true };
+    } catch (err: any) {
+      console.error("[NutriCoach] applyWeeklySmoothing error:", err);
+      setIsApplyingWeeklySmoothing(false);
+      setWeeklySmoothingError(err?.message || "Failed to persist weekly smoothing.");
+      return { success: false, error: err?.message };
+    }
+  };
+
+  const keepOriginalTargets = async (): Promise<{ success: boolean; error?: string }> => {
+    if (isApplyingWeeklySmoothing) {
+      return { success: false, error: "Smoothing operation already in progress." };
+    }
+
+    setWeeklySmoothingError(null);
+    setWeeklySmoothingSuccess(null);
+
+    // If weekly smoothing was applied, revert the remaining days back to baseline
+    if (isWeeklySmoothingApplied) {
+      setIsApplyingWeeklySmoothing(true);
+      const memberId = state.activeMemberId;
+      const today = state.today;
+      const remainingDays: string[] = [];
+      for (let offset = 1; offset <= weeklyRebalanceInfo.remainingDaysCount; offset++) {
+        remainingDays.push(addDays(today, offset));
+      }
+
+      const backup = backupPlannedMeals[memberId];
+
+      try {
+        let revertDaysPayload: Array<{
+          targetDate: string;
+          meals: Array<{ slot: MealType; meal: MealSnapshot }>;
+        }> = [];
+
+        if (backup && backup.length > 0) {
+          const byDate: Record<string, PlannedMeal[]> = {};
+          for (const b of backup) {
+            if (!byDate[b.date]) byDate[b.date] = [];
+            byDate[b.date].push(b);
+          }
+
+          revertDaysPayload = Object.entries(byDate).map(([date, meals]) => ({
+            targetDate: date,
+            meals: meals.map((m) => ({
+              slot: m.meal_type,
+              meal: {
+                meal_name: m.meal_name,
+                calories: m.calories,
+                protein: m.protein,
+                carbs: m.carbs,
+                fat: m.fat,
+                ingredients: m.ingredients,
+                tags: m.tags,
+              },
+            })),
+          }));
+        } else {
+          // Regenerate at baseline target
+          const prefs = prefsFromProfile(activeProfile);
+          const preferTags = activeProfile.dietary_preferences.includes("egyptian") ? ["egyptian"] : [];
+          const allSlots: MealType[] = ["breakfast", "lunch", "snack", "dinner"];
+
+          for (const date of remainingDays) {
+            const dayLogs = (state.mealLogs[memberId] || []).filter((l) => l.date === date);
+            let dayBudget: Macros = {
+              calories: activeTargets.calories,
+              protein: activeTargets.protein,
+              carbs: activeTargets.carbs,
+              fat: activeTargets.fat,
+            };
+            for (const log of dayLogs) {
+              dayBudget = subtractMacros(dayBudget, log);
+            }
+            const unloggedSlots = allSlots.filter((slot) => !dayLogs.some((l) => l.meal_type === slot));
+            const slots = planSlots(dayBudget, unloggedSlots, prefs, { preferTags });
+            revertDaysPayload.push({
+              targetDate: date,
+              meals: slots.map((s) => ({ slot: s.meal_type, meal: s.meal })),
+            });
+          }
+        }
+
+        const res = await fetch("/api/mutate-meal", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            memberId,
+            days: revertDaysPayload,
+            actionType: "revert_smoothing",
+            userRequest: "Keep original targets",
+            summary: `Restored baseline meal plans across ${revertDaysPayload.length} days`,
+            gymId: state.gym.id,
+          }),
+        });
+
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(data?.error || "Failed to persist restored meal plan to database.");
+        }
+
+        // Update local state with restored meals
+        setState((prev) => {
+          let currentList = [...(prev.plannedMeals[memberId] || [])];
+          for (const dayEntry of revertDaysPayload) {
+            for (const item of dayEntry.meals) {
+              const idx = currentList.findIndex((p) => p.date === dayEntry.targetDate && p.meal_type === item.slot);
+              const restoredMeal: PlannedMeal = {
+                id: idx >= 0 ? currentList[idx].id : `p-${memberId}-${dayEntry.targetDate}-${item.slot}`,
+                plan_id: idx >= 0 ? currentList[idx].plan_id : `plan-${memberId}`,
+                member_id: memberId,
+                date: dayEntry.targetDate,
+                meal_type: item.slot,
+                meal_name: item.meal.meal_name,
+                calories: item.meal.calories,
+                protein: item.meal.protein,
+                carbs: item.meal.carbs,
+                fat: item.meal.fat,
+                ingredients: item.meal.ingredients || [],
+                tags: item.meal.tags || [item.slot, "coach"],
+                source: "coach",
+                updated_at: new Date().toISOString(),
+              };
+              if (idx >= 0) {
+                currentList[idx] = restoredMeal;
+              } else {
+                currentList.push(restoredMeal);
+              }
+            }
+          }
+          return {
+            ...prev,
+            plannedMeals: { ...prev.plannedMeals, [memberId]: currentList },
+          };
+        });
+
+        setIsWeeklySmoothingApplied(false);
+        setIsApplyingWeeklySmoothing(false);
+        setWeeklySmoothingSuccess("Kept original targets. Meals restored to baseline plan.");
+        return { success: true };
+      } catch (err: any) {
+        console.error("[NutriCoach] keepOriginalTargets error:", err);
+        setIsApplyingWeeklySmoothing(false);
+        setWeeklySmoothingError(err?.message || "Failed to restore baseline targets.");
+        return { success: false, error: err?.message };
+      }
+    } else {
+      // Smoothing was not yet applied
+      setIsWeeklySmoothingApplied(false);
+      setWeeklySmoothingSuccess("Kept original targets.");
+      return { success: true };
+    }
+  };
+
+  const toggleWeeklySmoothing = () => {
+    if (isWeeklySmoothingApplied) {
+      keepOriginalTargets();
+    } else {
+      applyWeeklySmoothing();
+    }
+  };
+
   const adaptDailyPlan = (targetDateOrReason?: string, optionalReason?: string) => {
     const isDateArg = targetDateOrReason && /^\d{4}-\d{2}-\d{2}$/.test(targetDateOrReason);
     const targetDate = isDateArg ? targetDateOrReason : state.today;
@@ -1384,6 +1756,12 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
         allMessages,
         weeklySmoothingEnabled,
         toggleWeeklySmoothing,
+        isWeeklySmoothingApplied,
+        isApplyingWeeklySmoothing,
+        weeklySmoothingError,
+        weeklySmoothingSuccess,
+        applyWeeklySmoothing,
+        keepOriginalTargets,
         weeklyRebalanceInfo,
         selectedPlanDayOffset,
         setSelectedPlanDayOffset,

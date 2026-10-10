@@ -24,6 +24,7 @@ export async function POST(req: NextRequest) {
       targetSlot,
       meal,
       meals,
+      days,
       actionType = "replace_meal",
       userRequest,
       summary,
@@ -37,18 +38,160 @@ export async function POST(req: NextRequest) {
       targetSlot,
       hasSingleMeal: !!meal,
       multiMealCount: Array.isArray(meals) ? meals.length : 0,
+      daysCount: Array.isArray(days) ? days.length : 0,
       actionType,
       userRequest,
     });
 
     // 1. Input Validation
-    if (!memberId || !targetDate) {
+    if (!memberId) {
       return NextResponse.json(
-        { success: false, error: "Validation failed: missing memberId or targetDate." },
+        { success: false, error: "Validation failed: missing memberId." },
         { status: 400 }
       );
     }
 
+    if (!targetDate && (!Array.isArray(days) || days.length === 0)) {
+      return NextResponse.json(
+        { success: false, error: "Validation failed: missing targetDate or days array." },
+        { status: 400 }
+      );
+    }
+
+    const supabase = await createClient();
+
+    // 2. Multi-day batch flow
+    if (Array.isArray(days) && days.length > 0) {
+      // Find or create active plan
+      const { data: plans } = await supabase
+        .from("nutrition_plans")
+        .select("id")
+        .eq("member_id", memberId)
+        .eq("status", "active")
+        .order("start_date", { ascending: false })
+        .limit(1);
+
+      let planId = plans?.[0]?.id || `plan-${memberId}`;
+
+      const allVerifiedRows: any[] = [];
+      let totalUpdatedMeals = 0;
+
+      for (const dayEntry of days) {
+        const dDate = dayEntry.targetDate || dayEntry.date;
+        const dMeals = dayEntry.meals;
+        if (!dDate || !Array.isArray(dMeals) || dMeals.length === 0) continue;
+
+        // Check logged slots for this date
+        const { data: dayLogs } = await supabase
+          .from("meal_logs")
+          .select("id, meal_name, meal_type")
+          .eq("member_id", memberId)
+          .eq("date", dDate);
+
+        const loggedSlots = new Set<string>();
+        if (dayLogs && dayLogs.length > 0) {
+          dayLogs.forEach((l) => loggedSlots.add(l.meal_type.toLowerCase()));
+        }
+
+        const items: MutateMealItem[] = [];
+        for (const m of dMeals) {
+          const slot = m.slot || m.mealType || m.meal_type;
+          const mealData = m.meal || m;
+          if (slot && mealData && mealData.meal_name && !loggedSlots.has(String(slot).toLowerCase())) {
+            items.push({
+              slot: String(slot).toLowerCase(),
+              meal: mealData,
+            });
+          }
+        }
+
+        if (items.length === 0) continue;
+
+        const upsertRows = items.map((item) => ({
+          plan_id: planId,
+          member_id: memberId,
+          date: dDate,
+          meal_type: item.slot,
+          meal_name: item.meal.meal_name,
+          calories: Number(item.meal.calories) || 0,
+          protein: Number(item.meal.protein) || 0,
+          carbs: Number(item.meal.carbs) || 0,
+          fat: Number(item.meal.fat) || 0,
+          ingredients: item.meal.ingredients || [],
+          tags: item.meal.tags || [item.slot, "agent", "smoothed"],
+          source: "agent",
+          updated_at: new Date().toISOString(),
+        }));
+
+        for (const row of upsertRows) {
+          const { error: upsertErr } = await supabase
+            .from("planned_meals")
+            .upsert(row, { onConflict: "plan_id,date,meal_type" });
+
+          if (upsertErr) {
+            await supabase
+              .from("planned_meals")
+              .delete()
+              .eq("member_id", memberId)
+              .eq("date", dDate)
+              .eq("meal_type", row.meal_type);
+            await supabase.from("planned_meals").insert(row);
+          }
+        }
+
+        const { data: verifiedRows } = await supabase
+          .from("planned_meals")
+          .select("*")
+          .eq("member_id", memberId)
+          .eq("date", dDate);
+
+        if (verifiedRows && verifiedRows.length > 0) {
+          allVerifiedRows.push(...verifiedRows);
+        } else {
+          allVerifiedRows.push(...upsertRows);
+        }
+        totalUpdatedMeals += upsertRows.length;
+      }
+
+      // Record agent action
+      const actionPayload = {
+        member_id: memberId,
+        gym_id: gymId,
+        initiated_by: memberId,
+        action_type: actionType,
+        user_request: userRequest || "Weekly auto-balance applied",
+        summary: summary || `Weekly auto-balance applied across ${days.length} days (${totalUpdatedMeals} meals)`,
+        tools_used: [
+          { tool: "weekly_auto_balance", summary: `Redistributed daily calorie targets across ${days.length} days` },
+          { tool: "replan_meals", summary: `Recalculated and persisted ${totalUpdatedMeals} meals` },
+        ],
+        proposed_change: null,
+        requires_coach_approval: false,
+        approved: true,
+        execution_status: "executed",
+        decided_by: memberId,
+        decided_at: new Date().toISOString(),
+        decision_note: "Applied weekly smoothing to synchronize planned meals",
+        estimated_manual_minutes: 15,
+        estimated_agent_minutes: 0.5,
+        estimated_minutes_saved: 15,
+        estimated_cost_value: 50.0,
+        created_at: new Date().toISOString(),
+      };
+
+      await supabase.from("agent_actions").insert(actionPayload);
+
+      return NextResponse.json({
+        success: true,
+        memberId,
+        daysCount: days.length,
+        updatedMealsCount: totalUpdatedMeals,
+        updatedMeals: allVerifiedRows,
+        action: actionPayload,
+      });
+    }
+
+    // 3. Single-day flow
     // Build normalized array of items to mutate
     const itemsToMutate: MutateMealItem[] = [];
 
@@ -77,9 +220,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const supabase = await createClient();
-
-    // 2. Protected Eaten-Meal Guard: do NOT overwrite meals already logged as eaten
+    // Protected Eaten-Meal Guard: do NOT overwrite meals already logged as eaten
     const { data: existingLogs, error: logErr } = await supabase
       .from("meal_logs")
       .select("id, meal_name, meal_type")
@@ -106,7 +247,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 3. Find or create active plan in nutrition_plans
+    // Find or create active plan in nutrition_plans
     const { data: plans, error: fetchPlanErr } = await supabase
       .from("nutrition_plans")
       .select("id")

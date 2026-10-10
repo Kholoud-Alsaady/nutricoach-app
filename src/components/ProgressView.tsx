@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { addDays, formatDay, relativeDay } from "@/lib/dates";
+import { addDays, daysBetween, formatDay, relativeDay } from "@/lib/dates";
 import { Award, CheckCircle2, Flame, LineChart, TrendingUp, AlertTriangle, Sparkles } from "lucide-react";
 import { useNutriCoach } from "./NutriCoachContext";
 import { analyzeProgress } from "@/lib/analysis";
@@ -267,11 +267,20 @@ export function ProgressView() {
 
             return (
               <div key={d.date} className="px-4 py-2.5 flex items-center justify-between text-xs">
-                <div className="flex items-center gap-3">
-                  <div className="w-24 font-medium text-ink-primary">
-                    {isToday && isOnboarding ? "Today (Created)" : relativeDay(d.date, state.today)}
+                <div className="flex items-center gap-2">
+                  <div className="font-medium text-ink-primary">
+                    {formatDay(d.date)}
                   </div>
-                  <div className="text-ink-muted text-[11px]">{formatDay(d.date)}</div>
+                  {isToday && (
+                    <span className="text-[10px] px-1.5 py-0.5 bg-brand-tint text-brand rounded font-medium">
+                      {isOnboarding ? "Today (Created)" : "Today"}
+                    </span>
+                  )}
+                  {!isToday && daysBetween(state.today, d.date) === -1 && (
+                    <span className="text-[10px] text-ink-muted font-normal">
+                      (Yesterday)
+                    </span>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-6">

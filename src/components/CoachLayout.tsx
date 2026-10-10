@@ -148,7 +148,7 @@ export function CoachLayout() {
               className="w-full flex items-center justify-center gap-1.5 text-xs text-ink-secondary hover:text-brand bg-surface-subtle hover:bg-surface p-2 rounded-md border border-border transition-colors font-medium"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
-              <span>← Back to Portal</span>
+              <span>Back to Portal</span>
             </button>
           </div>
         </aside>

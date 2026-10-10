@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { addDays, formatDay, relativeDay } from "@/lib/dates";
-import { RefreshCw, Sparkles, Utensils, X } from "lucide-react";
+import { Check, RefreshCw, Sparkles, Utensils, X } from "lucide-react";
 import { useNutriCoach } from "./NutriCoachContext";
 import type { MealSnapshot, MealType } from "@/lib/types";
 
@@ -16,6 +16,12 @@ export function MealPlanView() {
     adaptDailyPlan,
     weeklySmoothingEnabled,
     toggleWeeklySmoothing,
+    isWeeklySmoothingApplied,
+    isApplyingWeeklySmoothing,
+    weeklySmoothingError,
+    weeklySmoothingSuccess,
+    applyWeeklySmoothing,
+    keepOriginalTargets,
     weeklyRebalanceInfo,
     selectedPlanDayOffset,
     setSelectedPlanDayOffset,
@@ -36,7 +42,7 @@ export function MealPlanView() {
 
   // Effective day target based on weekly smoothing
   const effectiveDayTarget =
-    selectedPlanDayOffset > 0 && weeklySmoothingEnabled && weeklyRebalanceInfo.isSignificant
+    selectedPlanDayOffset > 0 && isWeeklySmoothingApplied && weeklyRebalanceInfo.isSignificant
       ? activeTargets.calories + weeklyRebalanceInfo.dailyAdjustment
       : activeTargets.calories;
 
@@ -44,7 +50,7 @@ export function MealPlanView() {
   const days = Array.from({ length: 7 }, (_, i) => {
     const date = addDays(today, i);
     const dayTarget =
-      i > 0 && weeklySmoothingEnabled && weeklyRebalanceInfo.isSignificant
+      i > 0 && isWeeklySmoothingApplied && weeklyRebalanceInfo.isSignificant
         ? activeTargets.calories + weeklyRebalanceInfo.dailyAdjustment
         : activeTargets.calories;
 
@@ -312,31 +318,66 @@ export function MealPlanView() {
           <div className="flex items-center gap-1.5 bg-surface-subtle p-0.5 rounded-lg border border-border shrink-0">
             <button
               type="button"
+              disabled={isApplyingWeeklySmoothing}
               onClick={() => {
-                if (!weeklySmoothingEnabled) toggleWeeklySmoothing();
+                if (!isWeeklySmoothingApplied && !isApplyingWeeklySmoothing) {
+                  applyWeeklySmoothing();
+                }
               }}
-              className={`text-[11px] font-medium px-2.5 py-1 rounded transition-all ${
-                weeklySmoothingEnabled
+              className={`text-[11px] font-medium px-2.5 py-1 rounded transition-all flex items-center gap-1.5 ${
+                isWeeklySmoothingApplied
                   ? "bg-brand text-white shadow-hairline"
-                  : "text-ink-muted hover:text-ink-primary"
-              }`}
+                  : "text-ink-secondary hover:text-ink-primary"
+              } ${isApplyingWeeklySmoothing ? "opacity-60 cursor-not-allowed" : ""}`}
             >
-              Apply weekly smoothing
+              {isApplyingWeeklySmoothing && !isWeeklySmoothingApplied ? (
+                <>
+                  <RefreshCw className="w-3 h-3 animate-spin" />
+                  <span>Applying...</span>
+                </>
+              ) : (
+                <>
+                  {isWeeklySmoothingApplied && <Check className="w-3 h-3" />}
+                  <span>Apply weekly smoothing</span>
+                </>
+              )}
             </button>
             <button
               type="button"
+              disabled={isApplyingWeeklySmoothing}
               onClick={() => {
-                if (weeklySmoothingEnabled) toggleWeeklySmoothing();
+                if (!isApplyingWeeklySmoothing) {
+                  keepOriginalTargets();
+                }
               }}
-              className={`text-[11px] font-medium px-2.5 py-1 rounded transition-all ${
-                !weeklySmoothingEnabled
-                  ? "bg-surface text-ink-primary shadow-hairline"
+              className={`text-[11px] font-medium px-2.5 py-1 rounded transition-all flex items-center gap-1.5 ${
+                !isWeeklySmoothingApplied
+                  ? "bg-surface text-ink-primary shadow-hairline font-semibold"
                   : "text-ink-muted hover:text-ink-primary"
-              }`}
+              } ${isApplyingWeeklySmoothing ? "opacity-60 cursor-not-allowed" : ""}`}
             >
-              Keep original targets
+              {isApplyingWeeklySmoothing && isWeeklySmoothingApplied ? (
+                <>
+                  <RefreshCw className="w-3 h-3 animate-spin" />
+                  <span>Restoring...</span>
+                </>
+              ) : (
+                <span>Keep original targets</span>
+              )}
             </button>
           </div>
+
+          {weeklySmoothingError && (
+            <div className="w-full text-xs text-status-danger bg-[#FDF2F0] border border-[#F9D7D2] p-2 rounded mt-2">
+              {weeklySmoothingError}
+            </div>
+          )}
+          {weeklySmoothingSuccess && !weeklySmoothingError && (
+            <div className="w-full text-xs text-brand bg-brand-tint border border-[#D5E6D2] p-2 rounded mt-2 flex items-center gap-1.5">
+              <Check className="w-3.5 h-3.5" />
+              <span>{weeklySmoothingSuccess}</span>
+            </div>
+          )}
         </div>
       )}
 
@@ -356,7 +397,7 @@ export function MealPlanView() {
             >
               <div className="flex items-center justify-between">
                 <span className="text-[10px] text-ink-muted uppercase">{d.short}</span>
-                {d.offset > 0 && weeklySmoothingEnabled && weeklyRebalanceInfo.isSignificant && (
+                {d.offset > 0 && isWeeklySmoothingApplied && weeklyRebalanceInfo.isSignificant && (
                   <span className="text-[9px] text-brand font-semibold">
                     {d.target}k
                   </span>
@@ -374,7 +415,7 @@ export function MealPlanView() {
           <div>
             <h3 className="text-xs font-medium text-ink-primary flex items-center gap-2">
               <span>Meal Plan for {relativeDay(currentSelectedDate, today)} ({formatDay(currentSelectedDate)})</span>
-              {selectedPlanDayOffset > 0 && weeklySmoothingEnabled && weeklyRebalanceInfo.isSignificant && (
+              {selectedPlanDayOffset > 0 && isWeeklySmoothingApplied && weeklyRebalanceInfo.isSignificant && (
                 <span className="text-[10px] font-medium px-2 py-0.5 bg-brand-tint text-brand rounded border border-[#D5E6D2]">
                   Smoothed Target
                 </span>
@@ -382,7 +423,7 @@ export function MealPlanView() {
             </h3>
             <p className="text-[11px] text-ink-muted mt-0.5">
               Target: <strong className="font-semibold text-ink-primary">{effectiveDayTarget} kcal</strong>
-              {selectedPlanDayOffset > 0 && weeklySmoothingEnabled && weeklyRebalanceInfo.isSignificant && (
+              {selectedPlanDayOffset > 0 && isWeeklySmoothingApplied && weeklyRebalanceInfo.isSignificant && (
                 <span> ({weeklyRebalanceInfo.dailyAdjustment > 0 ? `+${weeklyRebalanceInfo.dailyAdjustment}` : weeklyRebalanceInfo.dailyAdjustment} kcal/day adjustment)</span>
               )}
               {" "}· Planned: <strong className="font-semibold text-brand">{dayCalories} kcal</strong> ({dayProtein}g protein)
@@ -422,9 +463,6 @@ export function MealPlanView() {
                 <div className="space-y-0.5">
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-ink-primary">{slotTitle}</span>
-                    <span className="text-[10px] text-ink-muted px-1.5 py-0.2 bg-surface-subtle rounded uppercase">
-                      {slotType}
-                    </span>
                     {isAiAdapted && (
                       <span className="text-[10px] px-2 py-0.5 bg-brand-tint text-brand rounded font-medium border border-[#D5E6D2] flex items-center gap-1">
                         <Sparkles className="w-2.5 h-2.5" />
