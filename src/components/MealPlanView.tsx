@@ -390,7 +390,7 @@ export function MealPlanView() {
           </div>
 
           <button
-            onClick={() => adaptDailyPlan(`Regenerate full plan for ${relativeDay(currentSelectedDate, today)}`)}
+            onClick={() => adaptDailyPlan(currentSelectedDate, `Regenerate full plan for ${relativeDay(currentSelectedDate, today)}`)}
             className="text-xs text-brand hover:text-brand-hover px-2.5 py-1 rounded border border-border hover:bg-surface-subtle transition-colors flex items-center gap-1 font-medium"
           >
             <RefreshCw className="w-3 h-3" />

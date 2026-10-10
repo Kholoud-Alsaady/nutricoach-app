@@ -2,6 +2,19 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { DEMO_GYM_ID } from "@/lib/agent/seed-data";
 
+interface MutateMealItem {
+  slot: string;
+  meal: {
+    meal_name: string;
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+    ingredients?: string[];
+    tags?: string[];
+  };
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -10,6 +23,7 @@ export async function POST(req: NextRequest) {
       targetDate,
       targetSlot,
       meal,
+      meals,
       actionType = "replace_meal",
       userRequest,
       summary,
@@ -17,40 +31,75 @@ export async function POST(req: NextRequest) {
       gymId = DEMO_GYM_ID,
     } = body;
 
-    console.log("MUTATION REQUEST:", {
+    console.log("[NutriCoach] /api/mutate-meal payload:", {
       memberId,
       targetDate,
       targetSlot,
-      meal,
+      hasSingleMeal: !!meal,
+      multiMealCount: Array.isArray(meals) ? meals.length : 0,
       actionType,
       userRequest,
     });
 
-    // 1. Validation
-    if (!memberId || !targetDate || !targetSlot || !meal || !meal.meal_name) {
-      console.warn("MUTATION VALIDATION FAILED: Missing required fields");
+    // 1. Input Validation
+    if (!memberId || !targetDate) {
       return NextResponse.json(
-        { success: false, error: "Validation failed: missing required fields for meal mutation." },
+        { success: false, error: "Validation failed: missing memberId or targetDate." },
+        { status: 400 }
+      );
+    }
+
+    // Build normalized array of items to mutate
+    const itemsToMutate: MutateMealItem[] = [];
+
+    if (Array.isArray(meals) && meals.length > 0) {
+      for (const m of meals) {
+        const slot = m.slot || m.mealType || m.meal_type;
+        const mealData = m.meal || m;
+        if (slot && mealData && mealData.meal_name) {
+          itemsToMutate.push({
+            slot: String(slot).toLowerCase(),
+            meal: mealData,
+          });
+        }
+      }
+    } else if (targetSlot && meal && meal.meal_name) {
+      itemsToMutate.push({
+        slot: String(targetSlot).toLowerCase(),
+        meal,
+      });
+    }
+
+    if (itemsToMutate.length === 0) {
+      return NextResponse.json(
+        { success: false, error: "Validation failed: no valid meal items provided for mutation." },
         { status: 400 }
       );
     }
 
     const supabase = await createClient();
 
-    // 2. Protected Logged Meals Check
+    // 2. Protected Eaten-Meal Guard: do NOT overwrite meals already logged as eaten
     const { data: existingLogs, error: logErr } = await supabase
       .from("meal_logs")
-      .select("id, meal_name")
+      .select("id, meal_name, meal_type")
       .eq("member_id", memberId)
-      .eq("date", targetDate)
-      .eq("meal_type", targetSlot);
+      .eq("date", targetDate);
 
+    const loggedSlots = new Set<string>();
     if (!logErr && existingLogs && existingLogs.length > 0) {
-      console.warn(`MUTATION PREVENTED: ${targetSlot} on ${targetDate} is already logged.`);
+      existingLogs.forEach((l) => loggedSlots.add(l.meal_type.toLowerCase()));
+    }
+
+    // Filter out slots that are already logged as eaten
+    const safeItems = itemsToMutate.filter((item) => !loggedSlots.has(item.slot));
+
+    if (safeItems.length === 0) {
+      console.warn(`[NutriCoach] Mutation prevented: All requested meal slots on ${targetDate} are already logged.`);
       return NextResponse.json(
         {
           success: false,
-          error: `Meal in slot '${targetSlot}' for date '${targetDate}' is already logged as eaten.`,
+          error: `The requested meals for '${targetDate}' have already been logged as eaten and will not be overwritten.`,
           isLogged: true,
         },
         { status: 409 }
@@ -58,13 +107,17 @@ export async function POST(req: NextRequest) {
     }
 
     // 3. Find or create active plan in nutrition_plans
-    const { data: plans } = await supabase
+    const { data: plans, error: fetchPlanErr } = await supabase
       .from("nutrition_plans")
       .select("id")
       .eq("member_id", memberId)
       .eq("status", "active")
       .order("start_date", { ascending: false })
       .limit(1);
+
+    if (fetchPlanErr) {
+      console.warn("[NutriCoach] nutrition_plans table query notice:", fetchPlanErr.message);
+    }
 
     let planId = plans?.[0]?.id;
     if (!planId) {
@@ -82,62 +135,94 @@ export async function POST(req: NextRequest) {
       if (!planErr && newPlan) {
         planId = newPlan.id;
       } else {
+        // Fallback deterministic plan id format
         planId = `plan-${memberId}`;
       }
     }
 
-    // 4. Upsert meal into planned_meals
-    const mealPayload = {
+    // 4. Upsert meals into planned_meals
+    const upsertRows = safeItems.map((item) => ({
       plan_id: planId,
       member_id: memberId,
       date: targetDate,
-      meal_type: targetSlot,
-      meal_name: meal.meal_name,
-      calories: Number(meal.calories) || 0,
-      protein: Number(meal.protein) || 0,
-      carbs: Number(meal.carbs) || 0,
-      fat: Number(meal.fat) || 0,
-      ingredients: meal.ingredients || [],
-      tags: meal.tags || [targetSlot, "agent"],
+      meal_type: item.slot,
+      meal_name: item.meal.meal_name,
+      calories: Number(item.meal.calories) || 0,
+      protein: Number(item.meal.protein) || 0,
+      carbs: Number(item.meal.carbs) || 0,
+      fat: Number(item.meal.fat) || 0,
+      ingredients: item.meal.ingredients || [],
+      tags: item.meal.tags || [item.slot, "agent"],
       source: "agent",
       updated_at: new Date().toISOString(),
-    };
+    }));
 
-    const { data: updatedMeal, error: upsertErr } = await supabase
-      .from("planned_meals")
-      .upsert(mealPayload, { onConflict: "plan_id,date,meal_type" })
-      .select("*")
-      .single();
+    let upsertFailed = false;
+    let failureError: string | null = null;
 
-    if (upsertErr) {
-      console.warn("Supabase upsert error on planned_meals, attempting delete & insert fallback:", upsertErr.message);
-      await supabase
+    for (const row of upsertRows) {
+      const { error: upsertErr } = await supabase
         .from("planned_meals")
-        .delete()
-        .eq("member_id", memberId)
-        .eq("date", targetDate)
-        .eq("meal_type", targetSlot);
+        .upsert(row, { onConflict: "plan_id,date,meal_type" });
 
-      await supabase.from("planned_meals").insert(mealPayload);
+      if (upsertErr) {
+        console.warn("[NutriCoach] Upsert on planned_meals notice, trying delete & insert:", upsertErr.message);
+        await supabase
+          .from("planned_meals")
+          .delete()
+          .eq("member_id", memberId)
+          .eq("date", targetDate)
+          .eq("meal_type", row.meal_type);
+
+        const { error: insertErr } = await supabase.from("planned_meals").insert(row);
+        if (insertErr) {
+          upsertFailed = true;
+          failureError = insertErr.message;
+          console.error("[NutriCoach] Insert fallback on planned_meals failed:", insertErr.message);
+        }
+      }
     }
 
-    console.log("SUPABASE UPDATE RESULT (planned_meals):", {
-      success: !upsertErr,
-      meal: updatedMeal || mealPayload,
-      error: upsertErr?.message,
+    if (upsertFailed) {
+      console.error("[NutriCoach] Supabase mutation failed:", failureError);
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Database persistence failed: ${failureError || "Could not write to planned_meals"}`,
+        },
+        { status: 500 }
+      );
+    }
+
+    // 5. Query and verify updated rows from Supabase
+    const { data: verifiedRows, error: verifyErr } = await supabase
+      .from("planned_meals")
+      .select("*")
+      .eq("member_id", memberId)
+      .eq("date", targetDate);
+
+    if (verifyErr) {
+      console.warn("[NutriCoach] Verification query note:", verifyErr.message);
+    }
+
+    console.log("[NutriCoach] SUPABASE MUTATION SUCCESSFUL:", {
+      memberId,
+      date: targetDate,
+      savedCount: upsertRows.length,
+      verifiedCount: verifiedRows?.length || upsertRows.length,
     });
 
-    // 5. Record agent action in agent_actions
+    // 6. Record agent action in agent_actions
     const actionPayload = {
       member_id: memberId,
       gym_id: gymId,
       initiated_by: memberId,
       action_type: actionType,
-      user_request: userRequest || `Update ${targetSlot} to ${meal.meal_name}`,
-      summary: summary || `Updated ${targetSlot} to ${meal.meal_name} (${meal.calories} kcal)`,
+      user_request: userRequest || `Update ${targetDate} meals`,
+      summary: summary || `Updated ${safeItems.length} meal(s) for ${targetDate}`,
       tools_used: [
-        { tool: "replace_meal", summary: `Assigned ${meal.meal_name} to ${targetDate} ${targetSlot}` },
-        { tool: "calculate_remaining_nutrition", summary: "Recalculated daily macro balance" },
+        { tool: "replace_meal", summary: `Updated ${safeItems.length} meal slot(s) for ${targetDate}` },
+        { tool: "calculate_remaining_nutrition", summary: "Recalculated daily macro targets" },
       ],
       proposed_change: null,
       requires_coach_approval: false,
@@ -145,7 +230,7 @@ export async function POST(req: NextRequest) {
       execution_status: "executed",
       decided_by: memberId,
       decided_at: new Date().toISOString(),
-      decision_note: "Approved by member in Ask NutriCoach",
+      decision_note: "Confirmed and applied by member via NutriCoach AI",
       estimated_manual_minutes: 8,
       estimated_agent_minutes: 0.5,
       estimated_minutes_saved: 8,
@@ -155,19 +240,18 @@ export async function POST(req: NextRequest) {
 
     const { error: actionErr } = await supabase.from("agent_actions").insert(actionPayload);
     if (actionErr) {
-      console.warn("Supabase agent_actions insert note:", actionErr.message);
+      console.warn("[NutriCoach] Supabase agent_actions insert note:", actionErr.message);
     }
 
     return NextResponse.json({
       success: true,
       memberId,
       targetDate,
-      targetSlot,
-      meal: mealPayload,
+      updatedMeals: verifiedRows && verifiedRows.length > 0 ? verifiedRows : upsertRows,
       action: actionPayload,
     });
   } catch (error: any) {
-    console.error("Mutation API route error:", error);
+    console.error("[NutriCoach] Mutation API route error:", error);
     return NextResponse.json(
       { success: false, error: error?.message || "Internal server error during mutation" },
       { status: 500 }

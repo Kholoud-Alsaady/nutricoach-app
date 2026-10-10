@@ -757,6 +757,7 @@ export function AskNutriCoachPanel() {
 
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [applyingCardId, setApplyingCardId] = useState<string | null>(null);
   const [pendingProposal, setPendingProposal] = useState<AgentPendingProposal | null>(null);
   const [reviewModal, setReviewModal] = useState<ReviewModalState | null>(null);
 
@@ -1048,12 +1049,13 @@ export function AskNutriCoachPanel() {
 
         // If mutation is approved and verified by application
         if (data.shouldMutatePlan) {
+          let mutationSucceeded = false;
           if (data.proposedMeals && data.proposedMeals.length > 0) {
             const targetDay = data.targetDay || "tomorrow";
             const dayOffset = targetDay === "today" ? 0 : 1;
             const targetDate = data.targetDate || addDays(state.today, dayOffset);
 
-            replaceMultipleMealSlots({
+            const result = await replaceMultipleMealSlots({
               date: targetDate,
               meals: data.proposedMeals.map((pm) => ({
                 slot: pm.slot as MealType,
@@ -1068,7 +1070,7 @@ export function AskNutriCoachPanel() {
                 },
               })),
             });
-            setPendingProposal(null);
+            mutationSucceeded = result.success;
           } else if (data.proposedMeal && data.proposedMeal.title && data.targetSlot) {
             const targetDay = data.targetDay || "today";
             const dayOffset = targetDay === "tomorrow" ? 1 : 0;
@@ -1088,8 +1090,9 @@ export function AskNutriCoachPanel() {
                 mealType: data.targetSlot as MealType,
                 notes: "Logged via Ask NutriCoach",
               });
+              mutationSucceeded = true;
             } else {
-              replaceMealSlot({
+              const result = await replaceMealSlot({
                 mealType: data.targetSlot as MealType,
                 date: targetDate,
                 meal: {
@@ -1104,9 +1107,25 @@ export function AskNutriCoachPanel() {
                 source: "agent",
                 rebalanceDinner: data.targetSlot !== "dinner",
               });
+              mutationSucceeded = result.success;
             }
-            setPendingProposal(null);
           }
+
+          if (!mutationSucceeded) {
+            const errorMsg: AssistantMessage = {
+              id: `ai-err-${Date.now()}`,
+              sender: "agent",
+              text: "Sorry, I couldn't save those changes. Your original meal plan is unchanged. Please try again.",
+              intent: "error",
+              action: "none",
+              time: "Just now",
+            };
+            setAiMessages((prev) => [...prev, errorMsg]);
+            setLoading(false);
+            return;
+          }
+
+          setPendingProposal(null);
         }
 
         const agentReplyMsg: AssistantMessage = {
@@ -1349,7 +1368,10 @@ export function AskNutriCoachPanel() {
   };
 
   // Apply single food action card
-  const handleApplyMealPlanCard = (msgId: string, card: MealPlanActionCardData) => {
+  const handleApplyMealPlanCard = async (msgId: string, card: MealPlanActionCardData) => {
+    if (applyingCardId) return;
+    setApplyingCardId(msgId);
+
     console.log("[NutriCoach] APPLYING MEAL", {
       memberId: state.activeMemberId,
       date: card.targetDate,
@@ -1357,7 +1379,7 @@ export function AskNutriCoachPanel() {
       meal: card.foodName,
     });
 
-    replaceMealSlot({
+    const result = await replaceMealSlot({
       mealType: card.targetSlot,
       date: card.targetDate,
       meal: {
@@ -1373,24 +1395,52 @@ export function AskNutriCoachPanel() {
       rebalanceDinner: card.targetSlot !== "dinner",
     });
 
-    setAiMessages((prev) =>
-      prev.map((m) =>
-        m.id === msgId && m.mealPlanCard
-          ? { ...m, mealPlanCard: { ...m.mealPlanCard, confirmed: true } }
-          : m
-      )
-    );
+    setApplyingCardId(null);
+
+    if (result.success) {
+      setAiMessages((prev) => [
+        ...prev.map((m) =>
+          m.id === msgId && m.mealPlanCard
+            ? { ...m, mealPlanCard: { ...m.mealPlanCard, confirmed: true } }
+            : m
+        ),
+        {
+          id: `ai-conf-${Date.now()}`,
+          sender: "agent",
+          text: `Changes applied successfully. Your ${card.targetDayLabel.toLowerCase()}'s ${card.targetSlot} has been updated to ${card.foodName}.`,
+          intent: "meal_replacement",
+          action: "replace_meal",
+          time: "Just now",
+        },
+      ]);
+      setPendingProposal(null);
+    } else {
+      setAiMessages((prev) => [
+        ...prev,
+        {
+          id: `ai-err-${Date.now()}`,
+          sender: "agent",
+          text: "Sorry, I couldn't save those changes. Your original meal plan is unchanged. Please try again.",
+          intent: "error",
+          action: "none",
+          time: "Just now",
+        },
+      ]);
+    }
   };
 
   // Apply day-level plan adaptation card
-  const handleApplyDayPlanCard = (msgId: string, card: DayPlanProposalCardData) => {
+  const handleApplyDayPlanCard = async (msgId: string, card: DayPlanProposalCardData) => {
+    if (applyingCardId) return;
+    setApplyingCardId(msgId);
+
     console.log("[NutriCoach] APPLYING DAY PLAN PROPOSAL", {
       memberId: state.activeMemberId,
       date: card.targetDate,
       meals: card.meals,
     });
 
-    replaceMultipleMealSlots({
+    const result = await replaceMultipleMealSlots({
       date: card.targetDate,
       meals: card.meals.map((m) => ({
         slot: m.slot,
@@ -1406,14 +1456,53 @@ export function AskNutriCoachPanel() {
       })),
     });
 
-    setAiMessages((prev) =>
-      prev.map((m) =>
-        m.id === msgId && m.dayPlanCard
-          ? { ...m, dayPlanCard: { ...m.dayPlanCard, confirmed: true } }
-          : m
-      )
-    );
+    setApplyingCardId(null);
+
+    if (result.success) {
+      setAiMessages((prev) => [
+        ...prev.map((m) =>
+          m.id === msgId && m.dayPlanCard
+            ? { ...m, dayPlanCard: { ...m.dayPlanCard, confirmed: true } }
+            : m
+        ),
+        {
+          id: `ai-conf-${Date.now()}`,
+          sender: "agent",
+          text: `Changes applied successfully. Your ${card.targetDayLabel.toLowerCase()}'s meals have been updated in your plan.`,
+          intent: "meal_adaptation",
+          action: "adapt_day",
+          time: "Just now",
+        },
+      ]);
+      setPendingProposal(null);
+    } else {
+      setAiMessages((prev) => [
+        ...prev,
+        {
+          id: `ai-err-${Date.now()}`,
+          sender: "agent",
+          text: "Sorry, I couldn't save those changes. Your original meal plan is unchanged. Please try again.",
+          intent: "error",
+          action: "none",
+          time: "Just now",
+        },
+      ]);
+    }
+  };
+
+  const handleCancelProposal = (msgId: string) => {
     setPendingProposal(null);
+    setAiMessages((prev) => [
+      ...prev,
+      {
+        id: `ai-cancel-${Date.now()}`,
+        sender: "agent",
+        text: "Proposal cancelled. Your original meal plan is unchanged.",
+        intent: "cancel",
+        action: "none",
+        time: "Just now",
+      },
+    ]);
   };
 
 
@@ -1664,13 +1753,32 @@ export function AskNutriCoachPanel() {
 
                   <div className="pt-1.5 flex items-center justify-between gap-2 border-t border-border/60">
                     {!m.mealPlanCard.confirmed ? (
-                      <button
-                        onClick={() => handleApplyMealPlanCard(m.id, m.mealPlanCard!)}
-                        className="w-full text-xs font-semibold text-white bg-brand hover:bg-brand-hover px-3 py-1.5 rounded-md shadow-hairline transition-colors flex items-center justify-center gap-1.5"
-                      >
-                        <Sparkles className="w-3.5 h-3.5" />
-                        <span>Confirm & Apply to Plan</span>
-                      </button>
+                      <div className="w-full flex items-center gap-2">
+                        <button
+                          onClick={() => handleApplyMealPlanCard(m.id, m.mealPlanCard!)}
+                          disabled={applyingCardId !== null}
+                          className="flex-1 text-xs font-semibold text-white bg-brand hover:bg-brand-hover disabled:opacity-60 px-3 py-1.5 rounded-md shadow-hairline transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
+                        >
+                          {applyingCardId === m.id ? (
+                            <>
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              <span>Applying...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles className="w-3.5 h-3.5" />
+                              <span>Confirm & Apply Changes</span>
+                            </>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => handleCancelProposal(m.id)}
+                          disabled={applyingCardId !== null}
+                          className="text-xs text-ink-muted hover:text-ink-primary px-3 py-1.5 rounded-md border border-border hover:bg-surface-subtle transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                        >
+                          Cancel
+                        </button>
+                      </div>
                     ) : (
                       <div className="w-full flex items-center justify-between gap-2">
                         <span className="text-[11px] text-brand font-medium flex items-center gap-1">
@@ -1725,13 +1833,32 @@ export function AskNutriCoachPanel() {
 
                   <div className="pt-1.5 flex items-center justify-between gap-2 border-t border-border/60">
                     {!m.dayPlanCard.confirmed ? (
-                      <button
-                        onClick={() => handleApplyDayPlanCard(m.id, m.dayPlanCard!)}
-                        className="w-full text-xs font-semibold text-white bg-brand hover:bg-brand-hover px-3 py-1.5 rounded-md shadow-hairline transition-colors flex items-center justify-center gap-1.5"
-                      >
-                        <Sparkles className="w-3.5 h-3.5" />
-                        <span>Confirm & Apply Changes</span>
-                      </button>
+                      <div className="w-full flex items-center gap-2">
+                        <button
+                          onClick={() => handleApplyDayPlanCard(m.id, m.dayPlanCard!)}
+                          disabled={applyingCardId !== null}
+                          className="flex-1 text-xs font-semibold text-white bg-brand hover:bg-brand-hover disabled:opacity-60 px-3 py-1.5 rounded-md shadow-hairline transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
+                        >
+                          {applyingCardId === m.id ? (
+                            <>
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              <span>Applying...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles className="w-3.5 h-3.5" />
+                              <span>Confirm & Apply Changes</span>
+                            </>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => handleCancelProposal(m.id)}
+                          disabled={applyingCardId !== null}
+                          className="text-xs text-ink-muted hover:text-ink-primary px-3 py-1.5 rounded-md border border-border hover:bg-surface-subtle transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                        >
+                          Cancel
+                        </button>
+                      </div>
                     ) : (
                       <div className="w-full flex items-center justify-between gap-2">
                         <span className="text-[11px] text-brand font-medium flex items-center gap-1">

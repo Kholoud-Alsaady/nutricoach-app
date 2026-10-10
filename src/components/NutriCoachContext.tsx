@@ -99,13 +99,13 @@ interface NutriCoachContextType {
   logCustomMeal: (params: { mealType: MealType; mealName: string; calories: number; protein: number; carbs: number; fat: number; notes?: string }) => void;
   deleteLog: (logId: string) => void;
   replaceMeal: (params: { mealType: MealType; avoid?: string[]; reason?: string }) => void;
-  replaceMealSlot: (params: { mealType: MealType; date?: string; meal: MealSnapshot; source?: "coach" | "agent" | "custom" | string; rebalanceDinner?: boolean }) => void;
-  replaceMultipleMealSlots: (params: { date: string; meals: Array<{ slot: MealType; meal: MealSnapshot }>; actionType?: string; userRequest?: string; summary?: string }) => void;
+  replaceMealSlot: (params: { mealType: MealType; date?: string; meal: MealSnapshot; source?: "coach" | "agent" | "custom" | string; rebalanceDinner?: boolean }) => Promise<{ success: boolean; error?: string }>;
+  replaceMultipleMealSlots: (params: { date: string; meals: Array<{ slot: MealType; meal: MealSnapshot }>; actionType?: string; userRequest?: string; summary?: string }) => Promise<{ success: boolean; error?: string }>;
   addExtraMeal: (params: { mealType: string; mealName: string; calories: number; protein: number; carbs: number; fat: number; asLogged?: boolean; date?: string }) => void;
   confirmAddMeal: (params: { mealName: string; calories: number; protein: number; carbs: number; fat: number; mealType: string; targetDate: string; asLogged?: boolean }) => void;
   sendMemberMessage: (text: string) => Promise<void>;
   sendCoachReply: (memberId: string, replyText: string) => void;
-  adaptDailyPlan: (reason?: string) => void;
+  adaptDailyPlan: (targetDateOrReason?: string, optionalReason?: string) => void;
   approveProposal: (actionId: string, optionIndex?: number) => void;
   rejectProposal: (actionId: string, note?: string) => void;
   updateGymAssumptions: (partial: Partial<Gym>) => void;
@@ -118,7 +118,7 @@ const NutriCoachContext = createContext<NutriCoachContextType | null>(null);
 export function NutriCoachProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<DemoState>(() => {
     if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("nutricoach_demo_state_v5");
+      const saved = localStorage.getItem("nutricoach_demo_state_v6");
       if (saved) {
         try {
           return JSON.parse(saved);
@@ -134,7 +134,7 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
 
   useEffect(() => {
     try {
-      localStorage.setItem("nutricoach_demo_state_v5", JSON.stringify(state));
+      localStorage.setItem("nutricoach_demo_state_v6", JSON.stringify(state));
     } catch (e) {
       // ignore
     }
@@ -585,8 +585,8 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
     });
   };
 
-  // Direct meal slot replacement in plan or today with dinner auto-rebalancing
-  const replaceMealSlot = ({
+  // Direct meal slot replacement with reliable Supabase mutation verification
+  const replaceMealSlot = async ({
     mealType,
     date = today,
     meal,
@@ -598,131 +598,12 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
     meal: MealSnapshot;
     source?: "coach" | "agent" | "custom" | string;
     rebalanceDinner?: boolean;
-  }) => {
+  }): Promise<{ success: boolean; error?: string }> => {
     const memberId = state.activeMemberId;
-    const currentPlannedBefore = state.plannedMeals[memberId] || [];
-    const beforeMeal = currentPlannedBefore.find((p) => p.date === date && p.meal_type === mealType);
+    const actionTitle = date === today ? "Today" : date === addDays(today, 1) ? "Tomorrow" : date;
 
-    console.log("[NutriCoach] APPLYING MEAL", {
-      memberId,
-      date,
-      slot: mealType,
-      meal: meal.meal_name,
-    });
-    console.log("[NutriCoach] LOCAL PLAN BEFORE", beforeMeal);
-
-    let updatedSlotSaved: PlannedMeal | null = null;
-    let dinnerRebalancedNoteSaved = "";
-
-    setState((prev) => {
-      const currentPlanned = [...(prev.plannedMeals[memberId] || [])];
-      const idx = currentPlanned.findIndex((p) => p.date === date && p.meal_type === mealType);
-
-      const updatedSlot: PlannedMeal = {
-        id: idx >= 0 ? currentPlanned[idx].id : `p-${Date.now()}`,
-        plan_id: idx >= 0 ? currentPlanned[idx].plan_id : `plan-${memberId}`,
-        member_id: memberId,
-        date,
-        meal_type: mealType,
-        meal_name: meal.meal_name,
-        calories: meal.calories,
-        protein: meal.protein,
-        carbs: meal.carbs,
-        fat: meal.fat,
-        ingredients: meal.ingredients || [],
-        tags: meal.tags || [mealType, "agent"],
-        source: "agent",
-        updated_at: new Date().toISOString(),
-      };
-
-      updatedSlotSaved = updatedSlot;
-
-      if (idx >= 0) {
-        currentPlanned[idx] = updatedSlot;
-      } else {
-        currentPlanned.push(updatedSlot);
-      }
-
-      // If modifying a non-dinner meal slot, auto-rebalance dinner for that day so total calories stay balanced
-      let dinnerRebalancedNote = "";
-      if (rebalanceDinner && mealType !== "dinner") {
-        const dinnerIdx = currentPlanned.findIndex((p) => p.date === date && p.meal_type === "dinner");
-        if (dinnerIdx >= 0) {
-          const oldDinner = currentPlanned[dinnerIdx];
-          const effectiveDailyTarget =
-            weeklySmoothingEnabled && isSignificantDelta && date !== today
-              ? activeTargets.calories + dailyAdjustment
-              : activeTargets.calories;
-
-          const otherMealsCals = currentPlanned
-            .filter((p) => p.date === date && p.meal_type !== "dinner")
-            .reduce((sum, m) => sum + m.calories, 0);
-
-          const newDinnerCals = Math.max(250, effectiveDailyTarget - otherMealsCals);
-          const ratio = oldDinner.calories > 0 ? newDinnerCals / oldDinner.calories : 1;
-          const newDinnerProtein = Math.max(15, Math.round(oldDinner.protein * ratio));
-          const newDinnerCarbs = Math.max(15, Math.round(oldDinner.carbs * ratio));
-          const newDinnerFat = Math.max(5, Math.round(oldDinner.fat * ratio));
-
-          currentPlanned[dinnerIdx] = {
-            ...oldDinner,
-            calories: newDinnerCals,
-            protein: newDinnerProtein,
-            carbs: newDinnerCarbs,
-            fat: newDinnerFat,
-            source: "agent",
-            updated_at: new Date().toISOString(),
-          };
-
-          dinnerRebalancedNote = ` (Dinner recalibrated to ${newDinnerCals} kcal to maintain daily balance)`;
-        }
-      }
-
-      dinnerRebalancedNoteSaved = dinnerRebalancedNote;
-
-      const impact = impactFor("replace_meal", prev.gym.estimated_coach_hourly_value);
-      const actionTitle = date === today ? "Today" : date === addDays(today, 1) ? "Tomorrow" : date;
-      const newAction: AgentAction = {
-        id: `act-${Date.now()}`,
-        member_id: memberId,
-        gym_id: prev.gym.id,
-        initiated_by: memberId,
-        action_type: "replace_meal",
-        user_request: `Adjust ${actionTitle}'s ${mealType} to ${meal.meal_name}`,
-        summary: `Updated ${actionTitle}'s ${mealType} to ${meal.meal_name} (${meal.calories} kcal)${dinnerRebalancedNote}`,
-        tools_used: [
-          { tool: "replace_meal", summary: `Assigned ${meal.meal_name} to ${actionTitle} ${mealType}` },
-          { tool: "calculate_remaining_nutrition", summary: "Recalculated daily macro targets" },
-        ],
-        proposed_change: null,
-        requires_coach_approval: false,
-        approved: true,
-        execution_status: "executed",
-        decided_by: memberId,
-        decided_at: new Date().toISOString(),
-        decision_note: "Directly applied by NutriCoach agent",
-        estimated_manual_minutes: impact.estimated_manual_minutes,
-        estimated_agent_minutes: impact.estimated_agent_minutes,
-        estimated_minutes_saved: impact.estimated_minutes_saved,
-        estimated_cost_value: impact.estimated_cost_value,
-        created_at: new Date().toISOString(),
-      };
-
-      return {
-        ...prev,
-        plannedMeals: {
-          ...prev.plannedMeals,
-          [memberId]: currentPlanned,
-        },
-        actions: [newAction, ...prev.actions],
-      };
-    });
-
-    console.log("[NutriCoach] LOCAL PLAN AFTER", updatedSlotSaved || meal);
-
-    // Asynchronous background call to mutate-meal API for live Supabase persistence (OUTSIDE setState)
-    if (typeof window !== "undefined") {
-      fetch("/api/mutate-meal", {
+    try {
+      const res = await fetch("/api/mutate-meal", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -731,24 +612,100 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
           targetSlot: mealType,
           meal,
           actionType: "replace_meal",
-          userRequest: `Adjust ${date === today ? "Today" : date}'s ${mealType} to ${meal.meal_name}`,
-          summary: `Updated ${date === today ? "Today" : date}'s ${mealType} to ${meal.meal_name} (${meal.calories} kcal)${dinnerRebalancedNoteSaved}`,
+          userRequest: `Adjust ${actionTitle}'s ${mealType} to ${meal.meal_name}`,
+          summary: `Updated ${actionTitle}'s ${mealType} to ${meal.meal_name} (${meal.calories} kcal)`,
           rebalanceDinner,
           gymId: state.gym.id,
         }),
-      })
-        .then((res) => res.json())
-        .then((data) => {
-          console.log("[NutriCoach] SUPABASE PERSISTENCE", data);
-        })
-        .catch((err) => {
-          console.warn("[NutriCoach] SUPABASE PERSISTENCE NOTICE", err?.message);
-        });
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        console.error("[NutriCoach] Supabase mutation failed:", data?.error);
+        return {
+          success: false,
+          error: data?.error || "Failed to persist meal change to Supabase.",
+        };
+      }
+
+      // Supabase verified: Update local state with persisted meal
+      setState((prev) => {
+        const currentPlanned = [...(prev.plannedMeals[memberId] || [])];
+        const idx = currentPlanned.findIndex((p) => p.date === date && p.meal_type === mealType);
+
+        const updatedSlot: PlannedMeal = {
+          id: idx >= 0 ? currentPlanned[idx].id : `p-${Date.now()}`,
+          plan_id: idx >= 0 ? currentPlanned[idx].plan_id : `plan-${memberId}`,
+          member_id: memberId,
+          date,
+          meal_type: mealType,
+          meal_name: meal.meal_name,
+          calories: meal.calories,
+          protein: meal.protein,
+          carbs: meal.carbs,
+          fat: meal.fat,
+          ingredients: meal.ingredients || [],
+          tags: meal.tags || [mealType, "agent"],
+          source: "agent",
+          updated_at: new Date().toISOString(),
+        };
+
+        if (idx >= 0) {
+          currentPlanned[idx] = updatedSlot;
+        } else {
+          currentPlanned.push(updatedSlot);
+        }
+
+        const impact = impactFor("replace_meal", prev.gym.estimated_coach_hourly_value);
+        const newAction: AgentAction = {
+          id: `act-${Date.now()}`,
+          member_id: memberId,
+          gym_id: prev.gym.id,
+          initiated_by: memberId,
+          action_type: "replace_meal",
+          user_request: `Adjust ${actionTitle}'s ${mealType} to ${meal.meal_name}`,
+          summary: `Updated ${actionTitle}'s ${mealType} to ${meal.meal_name} (${meal.calories} kcal)`,
+          tools_used: [
+            { tool: "replace_meal", summary: `Assigned ${meal.meal_name} to ${actionTitle} ${mealType}` },
+            { tool: "calculate_remaining_nutrition", summary: "Recalculated daily macro targets" },
+          ],
+          proposed_change: null,
+          requires_coach_approval: false,
+          approved: true,
+          execution_status: "executed",
+          decided_by: memberId,
+          decided_at: new Date().toISOString(),
+          decision_note: "Directly applied by NutriCoach agent after Supabase verification",
+          estimated_manual_minutes: impact.estimated_manual_minutes,
+          estimated_agent_minutes: impact.estimated_agent_minutes,
+          estimated_minutes_saved: impact.estimated_minutes_saved,
+          estimated_cost_value: impact.estimated_cost_value,
+          created_at: new Date().toISOString(),
+        };
+
+        return {
+          ...prev,
+          plannedMeals: {
+            ...prev.plannedMeals,
+            [memberId]: currentPlanned,
+          },
+          actions: [newAction, ...prev.actions],
+        };
+      });
+
+      return { success: true };
+    } catch (err: any) {
+      console.error("[NutriCoach] Mutation network error:", err);
+      return {
+        success: false,
+        error: err?.message || "Network error while connecting to mutation API.",
+      };
     }
   };
 
-  // Multiple meal slots replacement for day-level or multi-meal adaptations
-  const replaceMultipleMealSlots = ({
+  // Multiple meal slots replacement with atomic Supabase persistence verification
+  const replaceMultipleMealSlots = async ({
     date,
     meals,
     actionType = "adapt_day",
@@ -760,123 +717,152 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
     actionType?: string;
     userRequest?: string;
     summary?: string;
-  }) => {
+  }): Promise<{ success: boolean; error?: string }> => {
     const memberId = state.activeMemberId;
     const actionTitle = date === today ? "Today" : date === addDays(today, 1) ? "Tomorrow" : date;
 
-    setState((prev) => {
-      const currentPlanned = [...(prev.plannedMeals[memberId] || [])];
+    try {
+      const res = await fetch("/api/mutate-meal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          memberId,
+          targetDate: date,
+          meals,
+          actionType,
+          userRequest: userRequest || `Adapt ${actionTitle}'s meal plan`,
+          summary: summary || `Adapted ${meals.length} meals for ${actionTitle}`,
+          gymId: state.gym.id,
+        }),
+      });
 
-      for (const item of meals) {
-        const idx = currentPlanned.findIndex((p) => p.date === date && p.meal_type === item.slot);
-        const updatedSlot: PlannedMeal = {
-          id: idx >= 0 ? currentPlanned[idx].id : `p-${Date.now()}-${item.slot}`,
-          plan_id: idx >= 0 ? currentPlanned[idx].plan_id : `plan-${memberId}`,
-          member_id: memberId,
-          date,
-          meal_type: item.slot,
-          meal_name: item.meal.meal_name,
-          calories: item.meal.calories,
-          protein: item.meal.protein,
-          carbs: item.meal.carbs,
-          fat: item.meal.fat,
-          ingredients: item.meal.ingredients || [],
-          tags: item.meal.tags || [item.slot, "agent", "adapted"],
-          source: "agent",
-          updated_at: new Date().toISOString(),
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        console.error("[NutriCoach] Multi-meal mutation failed:", data?.error);
+        return {
+          success: false,
+          error: data?.error || "Failed to persist multi-meal adaptation to Supabase.",
         };
-
-        if (idx >= 0) {
-          currentPlanned[idx] = updatedSlot;
-        } else {
-          currentPlanned.push(updatedSlot);
-        }
       }
 
-      const impact = impactFor("adapt_daily_plan", prev.gym.estimated_coach_hourly_value);
-      const newAction: AgentAction = {
-        id: `act-${Date.now()}`,
-        member_id: memberId,
-        gym_id: prev.gym.id,
-        initiated_by: memberId,
-        action_type: (actionType as any) || "adapt_day",
-        user_request: userRequest || `Adapt ${actionTitle}'s meal plan`,
-        summary: summary || `Adapted ${meals.length} meals for ${actionTitle}`,
-        tools_used: [
-          { tool: "adapt_day", summary: `Updated ${meals.length} meal slots for ${actionTitle}` },
-          { tool: "calculate_remaining_nutrition", summary: "Balanced daily macro distribution" },
-        ],
-        proposed_change: null,
-        requires_coach_approval: false,
-        approved: true,
-        execution_status: "executed",
-        decided_by: memberId,
-        decided_at: new Date().toISOString(),
-        decision_note: "Directly applied by NutriCoach agent",
-        estimated_manual_minutes: impact.estimated_manual_minutes,
-        estimated_agent_minutes: impact.estimated_agent_minutes,
-        estimated_minutes_saved: impact.estimated_minutes_saved,
-        estimated_cost_value: impact.estimated_cost_value,
-        created_at: new Date().toISOString(),
-      };
+      // Supabase verified: Update local state with persisted meals
+      setState((prev) => {
+        const currentPlanned = [...(prev.plannedMeals[memberId] || [])];
 
-      return {
-        ...prev,
-        plannedMeals: {
-          ...prev.plannedMeals,
-          [memberId]: currentPlanned,
-        },
-        actions: [newAction, ...prev.actions],
-      };
-    });
+        for (const item of meals) {
+          const idx = currentPlanned.findIndex((p) => p.date === date && p.meal_type === item.slot);
+          const updatedSlot: PlannedMeal = {
+            id: idx >= 0 ? currentPlanned[idx].id : `p-${Date.now()}-${item.slot}`,
+            plan_id: idx >= 0 ? currentPlanned[idx].plan_id : `plan-${memberId}`,
+            member_id: memberId,
+            date,
+            meal_type: item.slot,
+            meal_name: item.meal.meal_name,
+            calories: item.meal.calories,
+            protein: item.meal.protein,
+            carbs: item.meal.carbs,
+            fat: item.meal.fat,
+            ingredients: item.meal.ingredients || [],
+            tags: item.meal.tags || [item.slot, "agent", "adapted"],
+            source: "agent",
+            updated_at: new Date().toISOString(),
+          };
 
-    if (typeof window !== "undefined") {
-      meals.forEach((item) => {
-        fetch("/api/mutate-meal", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            memberId,
-            targetDate: date,
-            targetSlot: item.slot,
-            meal: item.meal,
-            actionType,
-            userRequest,
-          }),
-        }).catch((err) => console.warn("Background multi-meal mutation notice:", err));
+          if (idx >= 0) {
+            currentPlanned[idx] = updatedSlot;
+          } else {
+            currentPlanned.push(updatedSlot);
+          }
+        }
+
+        const impact = impactFor("adapt_daily_plan", prev.gym.estimated_coach_hourly_value);
+        const newAction: AgentAction = {
+          id: `act-${Date.now()}`,
+          member_id: memberId,
+          gym_id: prev.gym.id,
+          initiated_by: memberId,
+          action_type: (actionType as any) || "adapt_day",
+          user_request: userRequest || `Adapt ${actionTitle}'s meal plan`,
+          summary: summary || `Adapted ${meals.length} meals for ${actionTitle}`,
+          tools_used: [
+            { tool: "adapt_day", summary: `Updated ${meals.length} meal slots for ${actionTitle}` },
+            { tool: "calculate_remaining_nutrition", summary: "Balanced daily macro distribution" },
+          ],
+          proposed_change: null,
+          requires_coach_approval: false,
+          approved: true,
+          execution_status: "executed",
+          decided_by: memberId,
+          decided_at: new Date().toISOString(),
+          decision_note: "Directly applied by NutriCoach agent after Supabase verification",
+          estimated_manual_minutes: impact.estimated_manual_minutes,
+          estimated_agent_minutes: impact.estimated_agent_minutes,
+          estimated_minutes_saved: impact.estimated_minutes_saved,
+          estimated_cost_value: impact.estimated_cost_value,
+          created_at: new Date().toISOString(),
+        };
+
+        return {
+          ...prev,
+          plannedMeals: {
+            ...prev.plannedMeals,
+            [memberId]: currentPlanned,
+          },
+          actions: [newAction, ...prev.actions],
+        };
       });
+
+      return { success: true };
+    } catch (err: any) {
+      console.error("[NutriCoach] Multi-meal network error:", err);
+      return {
+        success: false,
+        error: err?.message || "Network error while connecting to mutation API.",
+      };
     }
   };
 
-  const adaptDailyPlan = (reason?: string) => {
+  const adaptDailyPlan = (targetDateOrReason?: string, optionalReason?: string) => {
+    const isDateArg = targetDateOrReason && /^\d{4}-\d{2}-\d{2}$/.test(targetDateOrReason);
+    const targetDate = isDateArg ? targetDateOrReason : state.today;
+    const reason = isDateArg ? optionalReason : targetDateOrReason;
+
+    const targetDayLogs = (state.mealLogs[state.activeMemberId] || []).filter((l) => l.date === targetDate);
+    const targetPlanned = (state.plannedMeals[state.activeMemberId] || []).filter((p) => p.date === targetDate);
+
     const remainingSlots = (["breakfast", "lunch", "snack", "dinner"] as MealType[]).filter(
-      (slot) => !todayMealLogs.some((l) => l.meal_type === slot)
+      (slot) => !targetDayLogs.some((l) => l.meal_type === slot)
     );
 
     if (!remainingSlots.length) return;
 
-    const remainingBudget = todayRemainingMacros;
+    let remainingBudget: Macros = { ...activeTargets };
+    for (const log of targetDayLogs) {
+      remainingBudget = subtractMacros(remainingBudget, log);
+    }
+
     const prefs = prefsFromProfile(activeProfile);
     const newMeals = planSlots(remainingBudget, remainingSlots, prefs);
 
     const changes: MealChange[] = newMeals.map(({ meal_type, meal }) => {
-      const before = todayPlannedMeals.find((p) => p.meal_type === meal_type);
+      const before = targetPlanned.find((p) => p.meal_type === meal_type);
       return {
-        date: today,
+        date: targetDate,
         meal_type,
         before: before ? { meal_name: before.meal_name, calories: before.calories, protein: before.protein, carbs: before.carbs, fat: before.fat, ingredients: before.ingredients, tags: before.tags } : null,
         after: meal,
       };
     });
 
-    const projected = sumMacros([...todayMealLogs, ...newMeals.map((m) => m.meal)]);
-    const verification = verifyMeals(newMeals.map((m) => m.meal), [{ date: today, totals: projected }], activeTargets);
+    const projected = sumMacros([...targetDayLogs, ...newMeals.map((m) => m.meal)]);
+    const verification = verifyMeals(newMeals.map((m) => m.meal), [{ date: targetDate, totals: projected }], activeTargets);
 
-    const explanation = reason || `Adjusted remaining meals (${remainingSlots.join(", ")}) to keep today's target balanced at ${activeTargets.calories} kcal.`;
+    const explanation = reason || `Adjusted remaining meals (${remainingSlots.join(", ")}) for ${targetDate} to keep your daily target balanced at ${activeTargets.calories} kcal.`;
 
     const proposed: ProposedChange = {
       kind: "adapt_daily_plan",
-      title: `Rebalance ${remainingSlots.join(" & ")} for Today`,
+      title: `Rebalance ${remainingSlots.join(" & ")} for ${targetDate}`,
       explanation,
       changes,
       options: newMeals.map((m) => m.meal),

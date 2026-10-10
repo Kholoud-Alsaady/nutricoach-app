@@ -233,6 +233,7 @@ export type AgentIntent =
   | "research_request"
   | "safety_redirect"
   | "general_conversation"
+  | "week_level_planning"
   | "unclear";
 
 export type AgentActionType =

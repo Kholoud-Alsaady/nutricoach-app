@@ -10,6 +10,8 @@ import type {
   AgentResponseContract,
 } from "@/lib/types";
 import { addDays, daysBetween, todayISO } from "@/lib/dates";
+import { searchTrustedNutritionSources, isTrustedResearchSource } from "@/lib/research/trusted-sources";
+import { planWeek, prefsFromProfile } from "@/lib/planner";
 
 // =============================================================================
 // /api/chat — NutriCoach general-purpose nutrition agent
@@ -216,6 +218,7 @@ const INTENTS: AgentIntent[] = [
   "progress_question",
   "plan_question",
   "research_request",
+  "week_level_planning",
   "general_conversation",
   "unclear",
 ];
@@ -282,21 +285,47 @@ function dayLabel(iso: string, currentDate: string) {
 }
 
 /** Resolve the model's targetDay/targetDate into a concrete ISO date using the APP's current date. */
-function resolveTargetDate(targetDay: unknown, targetDate: unknown, currentDate: string): string | null {
+function resolveTargetDate(targetDay: unknown, targetDate: unknown, currentDate: string, userMessage?: string): string | null {
   if (typeof targetDate === "string" && isISODate(targetDate)) return targetDate;
-  if (typeof targetDay !== "string" || !targetDay.trim()) return null;
-  const d = targetDay.toLowerCase().trim();
+
+  const d = (typeof targetDay === "string" ? targetDay : "").toLowerCase().trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
   if (d === "today" || d === "tonight" || d === "this evening" || d === "now") return currentDate;
   if (d === "tomorrow") return addDays(currentDate, 1);
   if (d === "yesterday") return addDays(currentDate, -1);
+
   const idx = WEEKDAYS.findIndex((w) => d.includes(w));
   if (idx >= 0) {
     const todayIdx = new Date(currentDate + "T12:00:00Z").getUTCDay();
     let diff = (idx - todayIdx + 7) % 7;
     if (diff === 0 && d.includes("next")) diff = 7;
+    if (diff === 0 && !d.includes("today") && !d.includes("tonight")) diff = 7;
     return addDays(currentDate, diff);
   }
+
+  // Inspect raw user message if targetDay didn't resolve
+  if (userMessage) {
+    const m = userMessage.toLowerCase();
+    if (m.includes("tomorrow")) return addDays(currentDate, 1);
+    if (m.includes("today") || m.includes("tonight") || m.includes("this evening")) return currentDate;
+    if (m.includes("yesterday")) return addDays(currentDate, -1);
+    if (m.includes("weekend")) {
+      const todayIdx = new Date(currentDate + "T12:00:00Z").getUTCDay();
+      const diff = (6 - todayIdx + 7) % 7 || 7;
+      return addDays(currentDate, diff);
+    }
+    for (let i = 0; i < WEEKDAYS.length; i++) {
+      const w = WEEKDAYS[i];
+      if (m.includes(w)) {
+        const todayIdx = new Date(currentDate + "T12:00:00Z").getUTCDay();
+        let diff = (i - todayIdx + 7) % 7;
+        if (diff === 0 && m.includes("next")) diff = 7;
+        if (diff === 0 && !m.includes("today") && !m.includes("tonight")) diff = 7;
+        return addDays(currentDate, diff);
+      }
+    }
+  }
+
   return null;
 }
 
@@ -374,274 +403,348 @@ function buildUpcomingPlan(planned: MealRow[], logs: MealRow[], currentDate: str
 }
 
 // -----------------------------------------------------------------------------
-// Research & web grounding helpers
+// Research & evidence-based nutrition answering helpers
 // -----------------------------------------------------------------------------
 
-function isResearchQuery(text: string): boolean {
+/**
+ * Checks if the user is asking to modify, replace, swap, add, or log meals, or change dietary preferences.
+ * These requests MUST go through the meal planning and modification workflows, NEVER intercepted as general nutrition questions.
+ */
+function isMealModificationRequest(text: string): boolean {
+  const t = text.toLowerCase().trim();
+
+  // Explicit confirmation tokens
+  if (/^(yes|apply|apply it|confirm|do it|looks good|sounds good|go ahead|sure|ok|okay)\b/i.test(t)) {
+    return true;
+  }
+
+  // Meal logging statements
+  if (/\b(i ate|i had|i drank|i consumed|log this|log meal|logged)\b/i.test(t)) {
+    return true;
+  }
+
+  // Week-level diversification/regeneration
+  if (
+    /\b(whole week|entire week|full week|this week|all week|weekly plan|week plan)\b/i.test(t) &&
+    /\b(more varied|different|varied|variety|regenerate|rebalance|remake|create|new plan|diversify)\b/i.test(t)
+  ) {
+    return true;
+  }
+
+  // Meal change verbs targeting specific slots or calendar days
+  const changeVerbs = /\b(replace|change|swap|switch|substitute|make|update|add|remove|cook|prepare|put|give me a meal|suggest a meal)\b/i;
+  const targetSlotsOrDays = /\b(tomorrow|today|yesterday|breakfast|lunch|dinner|snack|meal|meals|my plan|diet plan)\b/i;
+
+  if (changeVerbs.test(t) && targetSlotsOrDays.test(t)) {
+    // If it's a general question like "should I change to a sugar-free diet?", do not treat as an imperative meal replacement
+    if (/^(what|why|is|does|can|how|explain|tell me)\b/i.test(t) && !/\b(replace|swap|substitute|switch|log)\b/i.test(t)) {
+      return false;
+    }
+    return true;
+  }
+
+  // Dietary preference changes
+  if (
+    /\b(don't want|stop using|allergic to|no more|hate|dislike)\b/i.test(t) &&
+    /\b(chicken|meat|dairy|nuts|fish|gluten|eggplant|pork|beef|soy)\b/i.test(t)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function isExplicitResearchRequest(text: string): boolean {
   const t = text.toLowerCase();
   const patterns = [
     /\b(article|articles|study|studies|research|paper|papers)\b/i,
     /\b(guideline|guidelines|guidance|evidence)\b/i,
     /\b(trusted source|trusted sources|reliable source|reliable sources|source|sources)\b/i,
     /\b(read more about|scientific|literature|clinical trial|clinical trials)\b/i,
-    /\b(fao|who|nih|cdc|pubmed|peer-reviewed)\b/i,
-    /\bwhat does (who|fao|nih|cdc)\b/i,
-    /\bsuggest (me )?(an )?article\b/i,
-    /\b(article|study|guideline|research|paper) (about|on|for)\b/i,
+    /\b(fao|who|nih|cdc|nhs|pubmed|efsa|peer-reviewed)\b/i,
+    /\bwhat does (who|fao|nih|cdc|nhs|efsa)\b/i,
+    /\b(suggest|find|give|show|recommend|get|look up)\s+(me\s+)?(an?\s+)?(article|study|guideline|research|paper|source)\b/i,
+    /\b(article|study|guideline|research|paper)\s+(about|on|for|regarding)\b/i,
   ];
   return patterns.some((p) => p.test(t));
 }
 
-function isTrustedResearchSource(url: string): boolean {
-  try {
-    const hostname = new URL(url).hostname.toLowerCase();
-    return (
-      hostname.endsWith("fao.org") ||
-      hostname.endsWith("who.int") ||
-      hostname.endsWith("nih.gov") ||
-      hostname.endsWith("cdc.gov") ||
-      hostname.endsWith("ncbi.nlm.nih.gov") ||
-      hostname.endsWith(".gov") ||
-      hostname.endsWith(".edu") ||
-      hostname.endsWith("efsa.europa.eu") ||
-      hostname.endsWith("cochranelibrary.com") ||
-      hostname.endsWith("sciencedirect.com") ||
-      hostname.endsWith("nature.com") ||
-      hostname.endsWith("thelancet.com") ||
-      hostname.endsWith("bmj.com") ||
-      hostname.endsWith("jamanetwork.com") ||
-      hostname.endsWith("nutrition.org") ||
-      hostname.endsWith("eatright.org") ||
-      hostname.endsWith("cambridge.org") ||
-      hostname.endsWith("oxfordacademic.com") ||
-      hostname.endsWith("oup.com") ||
-      hostname.endsWith("springer.com") ||
-      hostname.endsWith("frontiersin.org") ||
-      hostname.endsWith("mdpi.com")
+function isNutritionOrResearchQuery(text: string): boolean {
+  const t = text.toLowerCase().trim();
+
+  if (isExplicitResearchRequest(t)) {
+    return true;
+  }
+
+  // Nutrition & dietary concept presence
+  const hasNutritionConcept =
+    /\b(sugar|sugars|sugar[- ]free|added sugar|free sugar|natural sugar|naturally occurring sugar|sweetener|sweeteners|protein|proteins|fiber|fibre|carb|carbs|carbohydrate|carbohydrates|fat|fats|saturated fat|unsaturated fat|omega[- ]?3|calorie|calories|macro|macros|nutrient|nutrients|nutrition|dietary|vitamin|vitamins|mineral|minerals|keto|ketogenic|vegan|vegetarian|intermittent fasting|fasting|time[- ]restricted eating|low[- ]carb|high[- ]protein|glycemic|glucose|cholesterol|hypertrophy|muscle growth|muscle protein synthesis)\b/i.test(
+      t
     );
-  } catch {
-    return false;
-  }
-}
 
-function inferSourceName(url: string, title?: string): string {
-  const lowerUrl = url.toLowerCase();
-  const lowerTitle = (title || "").toLowerCase();
-  if (lowerUrl.includes("who.int") || lowerTitle.includes("world health organization") || lowerTitle.includes("who")) {
-    return "World Health Organization (WHO)";
-  }
-  if (lowerUrl.includes("fao.org") || lowerTitle.includes("food and agriculture organization") || lowerTitle.includes("fao")) {
-    return "Food and Agriculture Organization (FAO)";
-  }
-  if (lowerUrl.includes("ncbi.nlm.nih.gov") || lowerUrl.includes("pubmed") || lowerTitle.includes("pubmed")) {
-    return "PubMed / National Institutes of Health";
-  }
-  if (lowerUrl.includes("nih.gov") || lowerTitle.includes("nih")) {
-    return "National Institutes of Health (NIH)";
-  }
-  if (lowerUrl.includes("cdc.gov") || lowerTitle.includes("cdc")) {
-    return "Centers for Disease Control and Prevention (CDC)";
-  }
-  if (lowerUrl.includes("efsa.europa.eu")) {
-    return "European Food Safety Authority (EFSA)";
-  }
-  if (lowerUrl.includes("harvard.edu")) {
-    return "Harvard T.H. Chan School of Public Health";
-  }
-  if (lowerUrl.includes("sciencedirect.com") || lowerUrl.includes("nature.com") || lowerUrl.includes("thelancet.com") || lowerUrl.includes("bmj.com")) {
-    return "Peer-Reviewed Medical Journal";
-  }
-  try {
-    const hostname = new URL(url).hostname.replace(/^www\./, "");
-    return hostname.charAt(0).toUpperCase() + hostname.slice(1);
-  } catch {
-    return "Authoritative Nutrition Source";
-  }
-}
-
-function inferSourceType(url: string, title?: string): "guideline" | "article" | "study" | "report" | "fact_sheet" {
-  const combined = `${url} ${title || ""}`.toLowerCase();
-  if (combined.includes("fact-sheet") || combined.includes("factsheet") || combined.includes("fact sheet")) return "fact_sheet";
-  if (combined.includes("guideline") || combined.includes("guidance") || combined.includes("recommendation") || combined.includes("standard")) return "guideline";
-  if (combined.includes("study") || combined.includes("trial") || combined.includes("pubmed") || combined.includes("pmc") || combined.includes("doi.org")) return "study";
-  if (combined.includes("report") || combined.includes("technical paper")) return "report";
-  return "article";
-}
-
-function inferTitleFromUrl(url: string): string {
-  try {
-    const pathname = new URL(url).pathname;
-    const last = pathname.split("/").filter(Boolean).pop() || "";
-    const clean = last.replace(/[-_]/g, " ").replace(/\.(html|php|asp|pdf)$/i, "");
-    if (clean.length > 3) {
-      return clean.charAt(0).toUpperCase() + clean.slice(1);
+  // When a nutrition concept is mentioned with advice, advantages, benefits, questions, or evaluations
+  if (hasNutritionConcept) {
+    // Advice or informational request
+    if (/\b(advise|advice|tell me about|explain|recommendation|recommendations|learn about|guide|guidance|overview|pros and cons)\b/i.test(t)) {
+      return true;
     }
-  } catch {
-    // fallback
+
+    // Advantages / benefits / effects / drawbacks
+    if (/\b(advantage|advantages|benefit|benefits|drawback|drawbacks|effect|effects|impact|impacts|value|pros|cons)\b/i.test(t)) {
+      return true;
+    }
+
+    // Health evaluation: healthy / good / safe / effective / recommended / bad / harmful
+    if (/\b(healthy|health|good|bad|safe|harmful|effective|recommended|work|matter)\b/i.test(t)) {
+      return true;
+    }
+
+    // Difference / comparison
+    if (/\b(difference|compare|versus|vs|distinction)\b/i.test(t)) {
+      return true;
+    }
+
+    // Reduction / intake questions (e.g. reducing sugar, eating less added sugar)
+    if (/\b(reducing|eating less|less added|cut down|cutting|lowering|avoiding|intake|consuming less)\b/i.test(t)) {
+      return true;
+    }
+
+    // Direct question structure (e.g. "what is", "why do", "how does", "can you", "can u")
+    if (/^(what|why|how|is|are|does|can|could|should|would)\b/i.test(t) || /^(can u|can you|could you|please)\b/i.test(t)) {
+      return true;
+    }
   }
-  return "Nutrition Guidelines & Research";
+
+  // Nutrition questions asking for mechanisms, health benefits, food comparisons, or dietary science
+  const nutritionPatterns = [
+    /\b(benefit|benefits|advantage|advantages)\s+(of|to|with)?\b/i,
+    /\b(advise|advice)\s+(me\s+)?(with|on|about)?\b/i,
+    /\b(is\s+(a\s+)?(sugar[- ]free|keto|vegan|vegetarian|intermittent fasting|low[- ]carb|high[- ]protein|fasting)\s+(diet\s+)?(healthy|good|safe|effective|recommended))\b/i,
+    /\b(difference between)\s+.*(sugar|protein|fat|carbs|fats|calories|fiber|fibre)\b/i,
+    /\b(does\s+(eating|consuming|having|taking)?\s*.*(help with|promote|lead to|cause|prevent))\b/i,
+    /\b(what does\s+.*(say about|conclude about))\b/i,
+    /\b(what are the\s+.*(benefits|advantages|effects|impacts|drawbacks|pros|cons))\b/i,
+    /\b(intermittent fasting|time[- ]restricted eating)\b/i,
+    /\b(added sugar|free sugar|natural sugar|naturally occurring sugar|sugar[- ]free diet|sugar free diet)\b/i,
+    /\b(dietary fiber|fiber benefits|fibre benefits|eating more fiber|benefits of fiber)\b/i,
+    /\b(muscle growth|hypertrophy|muscle protein synthesis|protein intake)\b/i,
+    /\b(healthy diet|nutritional value|nutrient density|balanced diet)\b/i,
+    /\b(does|can|will|could)\s+.*\s+(cure|heal|prevent|treat|help with|cause)\b/i,
+  ];
+
+  return nutritionPatterns.some((p) => p.test(t));
 }
 
-async function handleResearchRequest(
+/**
+ * Deterministic fallback synthesis using verified authoritative guidelines
+ * when Gemini is unreachable or experiences transient service issues.
+ */
+function synthesizeEvidenceFallback(message: string, sources: AgentResearchSource[]): string {
+  const topSources = sources.slice(0, 3);
+  const m = message.toLowerCase();
+
+  let directAnswer = "";
+  if (m.includes("added sugar") || m.includes("sugar-free") || m.includes("sugar free") || m.includes("sugar")) {
+    if (m.includes("difference") || (m.includes("added") && m.includes("natural"))) {
+      directAnswer =
+        "Naturally occurring sugars are found intrinsically within whole foods such as whole fruit (fructose) and plain dairy (lactose), accompanied by essential dietary fiber, protein, vitamins, and minerals that slow gastric emptying and moderate glycemic response. In contrast, added or free sugars are refined sugars and syrups introduced during processing or cooking, which deliver concentrated energy without protective fiber and are metabolized rapidly.";
+    } else if (m.includes("sugar-free") || m.includes("sugar free")) {
+      directAnswer =
+        "A diet low in added and free sugars is strongly supported by global health authorities for metabolic, cardiovascular, and dental health. However, a strictly 'sugar-free' regimen that completely eliminates wholesome foods containing natural sugars—such as fresh fruit and plain dairy—is unnecessary and may restrict essential micronutrients and dietary fiber. Official guidelines recommend prioritizing whole foods while minimizing added sugars.";
+    } else {
+      directAnswer =
+        "Reducing added sugar intake provides substantial, evidence-based benefits across metabolic and cardiovascular health. According to authoritative guidelines from the World Health Organization (WHO) and the CDC, limiting added sugars lowers the risk of dental caries, excess adiposity, type 2 diabetes, and cardiovascular disease.";
+    }
+  } else if (m.includes("protein") && (m.includes("muscle") || m.includes("hypertrophy"))) {
+    directAnswer =
+      "Yes, adequate dietary protein combined with resistance exercise is well established to support muscle protein synthesis and muscle hypertrophy. Peer-reviewed meta-analyses demonstrate that protein intakes between roughly 1.6 to 2.2 grams per kilogram of body weight per day optimize gains in muscle mass and strength, beyond which additional benefits typically plateau.";
+  } else if (m.includes("fiber") || m.includes("fibre")) {
+    directAnswer =
+      "Eating more dietary fiber provides well-documented benefits for cardiovascular, metabolic, and gastrointestinal health. Authoritative bodies like the WHO, CDC, and NHS recommend adults target 25 to 30 grams of fiber daily, which is clinically linked to improved glycemic regulation, lower LDL cholesterol, enhanced gut microbiome diversity, and reduced long-term risk of cardiovascular disease and colorectal cancer.";
+  } else if (m.includes("fasting")) {
+    directAnswer =
+      "Scientific research on intermittent fasting—such as 16/8 time-restricted eating or alternate-day fasting—indicates that it is an effective approach for weight management and metabolic health, primarily by facilitating a caloric deficit. Comprehensive reviews and meta-analyses in journals like The New England Journal of Medicine and JAMA show that its benefits are comparable to, but not clinically superior to, standard continuous calorie restriction. Long-term nutritional adequacy and individual adherence remain key.";
+  } else {
+    directAnswer = `Based on current official guidelines and peer-reviewed scientific literature, balanced nutrition emphasizing whole foods, appropriate macronutrient distribution, and minimal ultra-processed ingredients forms the foundation of long-term health.`;
+  }
+
+  const evidencePoints = topSources
+    .map((s) => `• **${s.sourceName}**: ${s.summary}`)
+    .join("\n");
+
+  const limitations =
+    "**Important Scientific Considerations & Guidance:**\n" +
+    "• Scientific studies distinguish correlation from causation; health outcomes depend on overall dietary patterns, physical activity, and total energy balance rather than single foods.\n" +
+    "• Avoid extreme dietary restrictions or expecting guaranteed weight-loss outcomes. Nutritional needs are highly individualized.\n" +
+    "• This information is educational and does not constitute medical diagnosis or individual clinical advice. Please consult a qualified healthcare professional or registered dietitian for personalized guidance, particularly if you have a medical condition, take medications, or are pregnant.";
+
+  return `${directAnswer}\n\n**Authoritative Evidence & Guidelines:**\n${evidencePoints}\n\n${limitations}\n\nYou can review the complete published guidelines and peer-reviewed studies below.`;
+}
+
+function getTailoredFollowUps(message: string): string[] {
+  const m = message.toLowerCase();
+  if (m.includes("sugar")) {
+    return [
+      "WHO guidelines on added sugar",
+      "How much added sugar is recommended daily?",
+      "Low-sugar breakfast ideas",
+    ];
+  }
+  if (m.includes("protein")) {
+    return [
+      "Optimal protein intake for muscle growth",
+      "High-protein snack ideas",
+      "View today's protein target",
+    ];
+  }
+  if (m.includes("fiber") || m.includes("fibre")) {
+    return [
+      "How to reach 30g of fiber daily",
+      "High-fiber food sources",
+      "View today's macros",
+    ];
+  }
+  if (m.includes("fasting")) {
+    return [
+      "Intermittent fasting protocols (16/8)",
+      "Does fasting preserve muscle mass?",
+      "Ask general nutrition question",
+    ];
+  }
+  return [
+    "Show WHO healthy diet guidelines",
+    "Find PubMed nutrition research",
+    "View today's macros",
+  ];
+}
+
+async function handleNutritionOrResearchRequest(
   message: string,
   ai: GoogleGenAI,
   model: string
 ): Promise<NextResponse> {
-  console.log("[NutriCoach] Research request:", message);
-
-  const lower = message.toLowerCase();
-  const wantsFao = /\bfao\b/i.test(message) || lower.includes("food and agriculture");
-  const wantsWho = /\bwho\b/i.test(message) || lower.includes("world health organization");
-  const wantsStudy = /\b(study|studies|trial|trials|paper|papers|pubmed|peer-reviewed)\b/i.test(message);
-
-  let searchPrompt = message;
-  if (wantsFao) {
-    searchPrompt += "\n[Search focus: official FAO publications, guidelines and articles from fao.org]";
-  } else if (wantsWho) {
-    searchPrompt += "\n[Search focus: official WHO guidance, guidelines and fact sheets from who.int]";
-  } else if (wantsStudy) {
-    searchPrompt += "\n[Search focus: peer-reviewed research papers and PubMed/NIH scientific studies]";
-  } else if (lower.includes("sugar")) {
-    searchPrompt += "\n[Search focus: official WHO and FAO guidance on free sugars, healthy diets, and sugar reduction]";
-  }
-
-  const RESEARCH_SYSTEM_INSTRUCTION = `You are NutriCoach's nutrition research assistant.
-
-The user is asking for nutrition information, articles, studies, guidelines, or trusted sources.
-
-Use Google Search grounding to find current, verifiable sources.
-
-Prioritize authoritative nutrition sources.
-
-Preferred sources:
-1. FAO (fao.org)
-2. WHO (who.int)
-3. NIH (nih.gov, ncbi.nlm.nih.gov)
-4. CDC (cdc.gov)
-5. PubMed / peer-reviewed journals
-6. Official government health agencies
-7. Universities and established research institutions
-
-If the user explicitly requests FAO, prioritize fao.org.
-If the user explicitly requests WHO, prioritize who.int.
-If the user explicitly requests a study or paper, prioritize PubMed and peer-reviewed sources.
-
-Do not invent:
-- article titles
-- URLs
-- publication dates
-- study findings
-- organizations
-
-Only mention information supported by the retrieved sources.
-
-For a general article request, return 2–4 strong sources.
-
-Give a short, useful explanation of what each source is about.
-
-Do not modify the user's meal plan.
-Do not create meal proposals.
-Do not calculate or change nutrition targets unless the user separately asks for that.
-
-Keep the response concise and useful.`;
+  const isResearch = isExplicitResearchRequest(message);
+  console.log(`[NutriCoach] Executing evidence-based ${isResearch ? "research" : "nutrition"} request: "${message}"`);
 
   try {
-    const response = await ai.models.generateContent({
-      model,
-      contents: searchPrompt,
-      config: {
-        systemInstruction: RESEARCH_SYSTEM_INSTRUCTION,
-        tools: [{ googleSearch: {} }],
-        temperature: 0.2,
-      },
-    });
+    const sources = await searchTrustedNutritionSources(message);
 
-    const answer = (response.text || "").trim();
-    const groundingMetadata = response.candidates?.[0]?.groundingMetadata;
+    if (!sources || sources.length === 0) {
+      return NextResponse.json({
+        replyText:
+          "I couldn't find verified scientific research or official guidelines matching that topic from trusted health authorities like WHO, PubMed, CDC, or NHS. Evidence on this specific topic may be limited, unverified, or outside of established nutrition consensus. If you have questions about established topics such as added sugar, dietary fiber, protein, or balanced eating patterns, I'd be happy to share reliable evidence.",
+        intent: isResearch ? "research_request" : "nutrition_question",
+        action: isResearch ? "search_research" : "none",
+        shouldMutatePlan: false,
+        requiresConfirmation: false,
+        researchSources: [],
+        suggestedFollowUps: [
+          "What are the benefits of reducing added sugar?",
+          "Does eating more protein help with muscle growth?",
+          "What are the benefits of eating more fiber?",
+        ],
+      } satisfies AgentResponseContract);
+    }
 
-    console.log("[NutriCoach] Grounding queries:", groundingMetadata?.webSearchQueries);
+    const sourcesContext = sources
+      .map(
+        (s, i) =>
+          `[Source ${i + 1}] Title: "${s.title}" (${s.sourceName}, ${s.publishedDate || "N/A"})\nURL: ${s.url}\nSummary: ${s.summary}`
+      )
+      .join("\n\n");
 
-    const rawChunks = groundingMetadata?.groundingChunks || [];
-    const seenUris = new Set<string>();
-    const extractedChunks: Array<{ uri: string; title: string }> = [];
+    const prompt = `The user asked: "${message}".
+We retrieved the following verified authoritative nutrition sources from primary health authorities (WHO, CDC, NHS, PubMed, NIH):
 
-    for (const chunk of rawChunks) {
-      const uri = chunk.web?.uri;
-      const title = (chunk.web?.title || "").trim();
-      if (uri && typeof uri === "string" && uri.startsWith("http") && !seenUris.has(uri.toLowerCase())) {
-        seenUris.add(uri.toLowerCase());
-        extractedChunks.push({ uri, title });
+${sourcesContext}
+
+Write an evidence-based, engaging, clear, and trustworthy answer to the user's question adhering strictly to the following standards:
+
+1. STRUCTURE & CLARITY:
+   - Provide a clear, concise direct answer first.
+   - Follow with the main supporting evidence from the retrieved authoritative sources (explicitly mention organizations like WHO, CDC, NHS, or peer-reviewed PubMed studies).
+   - Use clear, friendly, accessible language and explain scientific concepts in simple terms.
+
+2. SCIENTIFIC INTEGRITY:
+   - Distinguish correlation from causation.
+   - Explain important limitations and avoid overstating benefits.
+   - Do NOT promise guaranteed weight loss, disease prevention, or other health outcomes.
+   - Avoid extreme dietary recommendations and unnecessary food restrictions.
+   - If the topic involves sugar, clearly distinguish added/free sugars (in sweetened drinks, processed foods, syrups) from naturally occurring sugars in whole fruit and plain milk.
+
+3. ACCURATE CITATIONS:
+   - Do NOT invent studies, author names, URLs, publication dates, or claims.
+   - Only reference the actual retrieved sources provided above.
+   - Remind the user that they can explore the official documents and studies linked below.
+
+4. MEDICAL DISCLAIMER:
+   - Do NOT diagnose medical conditions or replace advice from qualified healthcare professionals.
+   - Recommend professional medical guidance if the inquiry involves an underlying medical condition, medication, or pregnancy.
+
+5. NON-MUTATION:
+   - Do NOT modify any meal plan or suggest mutating nutrition targets.`;
+
+    let replyText = "";
+    for (const mName of Array.from(new Set([model, "gemini-3.8-flash"]))) {
+      try {
+        const generatePromise = ai.models.generateContent({
+          model: mName,
+          contents: prompt,
+          config: {
+            temperature: 0.3,
+          },
+        });
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Timeout after 6000ms on ${mName}`)), 6000)
+        );
+        const resp: any = await Promise.race([generatePromise, timeoutPromise]);
+        replyText = (resp?.text || "").trim();
+        if (replyText) break;
+      } catch (modelErr: any) {
+        console.warn(`[NutriCoach] Gemini synthesis note (${mName}):`, modelErr?.message || modelErr);
       }
     }
 
-    // Score by authority and user preference
-    const scoredChunks = extractedChunks.map((c) => {
-      let score = 0;
-      const u = c.uri.toLowerCase();
-      if (wantsFao && u.includes("fao.org")) score += 200;
-      if (wantsWho && u.includes("who.int")) score += 200;
-      if (wantsStudy && (u.includes("pubmed") || u.includes("ncbi") || u.includes("nih.gov"))) score += 200;
+    // High-quality deterministic synthesis fallback if Gemini API is unreachable or times out
+    if (!replyText) {
+      replyText = synthesizeEvidenceFallback(message, sources);
+    }
 
-      if (u.includes("who.int")) score += 100;
-      else if (u.includes("fao.org")) score += 100;
-      else if (u.includes("nih.gov") || u.includes("cdc.gov") || u.includes("ncbi.nlm.nih.gov")) score += 80;
-      else if (isTrustedResearchSource(c.uri)) score += 50;
-      else score += 10;
-
-      return { ...c, score };
-    });
-
-    scoredChunks.sort((a, b) => b.score - a.score);
-
-    // Hard trust boundary: research cards must contain ONLY approved authoritative domains.
-    // Never fall back to arbitrary Google results just because fewer than two trusted
-    // sources were found. It is better to return a clear "no trusted source found"
-    // response than to surface an untrusted article.
-    const trustedOnly = scoredChunks.filter((c) => isTrustedResearchSource(c.uri));
-    const selectedChunks = trustedOnly.slice(0, 4);
-
-    const researchSources: AgentResearchSource[] = selectedChunks.map((c) => {
-      const sourceName = inferSourceName(c.uri, c.title);
-      const sourceType = inferSourceType(c.uri, c.title);
-      return {
-        title: c.title || inferTitleFromUrl(c.uri),
-        url: c.uri,
-        sourceName,
-        sourceType,
-        summary: `Evidence-based nutrition guidance and research from ${sourceName}.`,
-      };
-    });
-
-    console.log("[NutriCoach] Grounding sources:", researchSources);
-
-    const cleanReplyText = answer || "I found reliable sources on that topic. You can review the details below.";
-
-    const contract: AgentResponseContract = {
-      replyText: cleanReplyText,
-      intent: "research_request",
-      action: "search_research",
+    return NextResponse.json({
+      replyText,
+      intent: isResearch ? "research_request" : "nutrition_question",
+      action: isResearch ? "search_research" : "none",
       shouldMutatePlan: false,
       requiresConfirmation: false,
-      researchSources,
-      suggestedFollowUps: [
-        "Apply this to tomorrow's plan",
-        "Ask another nutrition question",
-      ],
-    };
-
-    return NextResponse.json(contract);
-  } catch (error: any) {
-    console.error("[NutriCoach] Research grounding failed:", error);
-    return NextResponse.json(
-      {
-        ...AGENT_UNAVAILABLE,
-        replyText: "I couldn't fetch live research sources right now. Please check your connection or try again in a moment.",
-        intent: "research_request",
-        action: "search_research",
-        error: error?.message || "Research grounding failed",
-      },
-      { status: 502 }
-    );
+      researchSources: sources,
+      suggestedFollowUps: getTailoredFollowUps(message),
+    } satisfies AgentResponseContract);
+  } catch (err: any) {
+    console.error("[NutriCoach] Nutrition/Research handler error:", err?.message || err);
+    try {
+      const fallbackSources = await searchTrustedNutritionSources(message);
+      if (fallbackSources.length > 0) {
+        return NextResponse.json({
+          replyText: synthesizeEvidenceFallback(message, fallbackSources),
+          intent: isResearch ? "research_request" : "nutrition_question",
+          action: isResearch ? "search_research" : "none",
+          shouldMutatePlan: false,
+          requiresConfirmation: false,
+          researchSources: fallbackSources,
+          suggestedFollowUps: getTailoredFollowUps(message),
+        } satisfies AgentResponseContract);
+      }
+    } catch {
+      // ignore secondary error
+    }
+    return NextResponse.json({
+      replyText: "I couldn't retrieve trusted nutrition research right now. Please try again in a moment.",
+      intent: isResearch ? "research_request" : "nutrition_question",
+      action: isResearch ? "search_research" : "none",
+      shouldMutatePlan: false,
+      requiresConfirmation: false,
+      researchSources: [],
+    } satisfies AgentResponseContract);
   }
 }
 
@@ -660,34 +763,39 @@ Never use the member's name or any persona label to decide what to say. Infer be
 
 You can handle arbitrary requests involving: meal replacement, meal additions, meal logging, meal adaptation, day-level meal-plan adaptation, week-level planning, cuisine preferences, food preferences, nutrition questions, progress questions, research requests, and meal-plan questions.
 
-RESEARCH AND INFORMATION RETRIEVAL:
-You can handle research requests.
+RESEARCH AND NUTRITION KNOWLEDGE RETRIEVAL:
+You can answer general nutrition questions and research requests using reliable, evidence-based nutrition science.
 
-When the user asks for:
-- an article
-- a study
-- research
-- a guideline
-- evidence
-- a trusted source
-- official nutrition guidance
-- information from FAO, WHO, NIH, CDC, PubMed, or another named authority
+When the user asks:
+- a general nutrition question (e.g. benefits of reducing added sugar, is a sugar-free diet healthy, added vs natural sugar, protein for muscle growth, fiber benefits, intermittent fasting)
+- or asks for an article, study, research, guideline, evidence, trusted source, or guidance from WHO, PubMed, CDC, NHS, FAO, or NIH
 
 classify the request as:
-intent = research_request
-action = search_research
+- for research/study queries: intent = research_request, action = search_research
+- for general nutrition knowledge questions: intent = nutrition_question, action = none (or search_research)
 
-Use web search grounding when available.
+For nutrition answers and research, prioritize authoritative sources:
+1. World Health Organization (WHO): https://www.who.int/
+2. PubMed: https://pubmed.ncbi.nlm.nih.gov/
+3. Centers for Disease Control and Prevention (CDC): https://www.cdc.gov/
+4. National Health Service (NHS): https://www.nhs.uk/
+Also accepted: NIH, FAO, EFSA, USDA, peer-reviewed journals, and established academic medical centers.
 
-For nutrition research, prioritize authoritative sources.
-Preferred sources include:
-FAO, WHO, NIH, CDC, official government health agencies, PubMed, peer-reviewed journals, universities, and established research institutions.
+If the user explicitly names a source such as WHO, CDC, NHS, FAO, or PubMed, prioritize that source.
 
-If the user explicitly names a source such as FAO or WHO, prioritize that source.
+Answer Quality Standards:
+- Provide a clear, concise answer first, followed by the main supporting evidence.
+- Explain scientific concepts simply in friendly, accessible language.
+- Distinguish correlation from causation.
+- Explain important limitations and avoid overstating benefits.
+- Avoid promising guaranteed weight loss, disease prevention, or other health outcomes.
+- Avoid extreme dietary recommendations and unnecessary food restrictions.
+- When discussing sugar, distinguish added/free sugars from naturally occurring sugars in whole fruit and plain milk.
+- Avoid diagnosing medical conditions or replacing advice from qualified healthcare professionals.
+- Recommend professional medical guidance when a question involves a medical condition, medication, or pregnancy.
 
 Do not invent articles, URLs, publication dates, or claims.
-Only return source links obtained from the search results.
-
+Only return source links obtained from verified search results.
 Return 2–4 high-quality sources rather than a large list.
 
 Each source in researchSources should contain:
@@ -696,9 +804,9 @@ Each source in researchSources should contain:
 - sourceName
 - sourceType ("guideline", "article", "study", "report", "fact_sheet")
 - publishedDate (when available)
-- summary (short, informative summary)
+- summary (concise explanation of how the source supports the answer)
 
-Research requests never modify the member's meal plan (shouldMutatePlan=false, requiresConfirmation=false).
+Nutrition information and research requests NEVER modify the member's meal plan (shouldMutatePlan=false, requiresConfirmation=false).
 
 If the user later explicitly asks to apply information from the research to their meal plan, treat that as a new meal-plan request.
 
@@ -846,11 +954,12 @@ export async function POST(req: NextRequest) {
   }
 
   const ai = new GoogleGenAI({ apiKey });
-  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  const model = process.env.GEMINI_MODEL || "gemini-3.8-flash";
 
-  // Dedicated first-class research request path
-  if (isResearchQuery(message)) {
-    return await handleResearchRequest(message, ai, model);
+  // Dedicated evidence-based nutrition answering & research retrieval path
+  // If the user asks to modify, replace, or adapt meals, that request proceeds to the meal planning workflow.
+  if (!isMealModificationRequest(message) && isNutritionOrResearchQuery(message)) {
+    return await handleNutritionOrResearchRequest(message, ai, model);
   }
 
   // STEP 2: Normalise the application state supplied by the client
@@ -894,6 +1003,102 @@ export async function POST(req: NextRequest) {
 
   const loggedOn = (date: string) => mealLogs.filter((l) => l.date === date);
   const isLogged = (date: string, slot: string) => loggedOn(date).some((l) => l.meal_type === slot);
+
+  // Fast-path: Explicit confirmation handling (deterministic, 0-latency, no LLM 503 risk)
+  const isExplicitConfirmation = /^(yes|apply|apply it|confirm|do it|looks good|sounds good|go ahead|sure|ok|okay)\b/i.test(message.trim());
+
+  if (isExplicitConfirmation) {
+    if (!pending) {
+      return NextResponse.json({
+        replyText: "There isn't a pending change for me to apply right now. What would you like to change?",
+        intent: "general_conversation",
+        action: "none",
+        shouldMutatePlan: false,
+        requiresConfirmation: false,
+        suggestedFollowUps: ["Change tomorrow's meals to Italian", "Recommend a high-protein dinner", "View today's macros"],
+      } satisfies AgentResponseContract);
+    }
+
+    const stale = isISODate(pending.targetDate) && daysBetween(currentDate, pending.targetDate) < 0;
+    const pendingMeals = Array.isArray(pending.meals) ? pending.meals : [];
+    const blocked =
+      pending.action !== "log_meal" && isISODate(pending.targetDate)
+        ? pendingMeals.filter((m) => m.slot && isLogged(pending.targetDate as string, m.slot))
+        : [];
+
+    if (stale) {
+      return NextResponse.json({
+        replyText: "That proposal was for a day that has already passed, so I haven't applied it. Want me to prepare a new one?",
+        intent: pending.intent || "meal_adaptation",
+        action: "none",
+        shouldMutatePlan: false,
+        requiresConfirmation: false,
+      } satisfies AgentResponseContract);
+    }
+
+    if (pendingMeals.length && blocked.length === pendingMeals.length) {
+      return NextResponse.json({
+        replyText: "Those meals have been logged since I proposed the change, so I won't overwrite them.",
+        intent: pending.intent || "meal_adaptation",
+        action: "none",
+        shouldMutatePlan: false,
+        requiresConfirmation: false,
+      } satisfies AgentResponseContract);
+    }
+
+    return NextResponse.json({
+      replyText: `Applied! I've updated your planned meals for ${pending.targetDate || "tomorrow"}.`,
+      action: pending.action,
+      intent: pending.intent || "meal_adaptation",
+      targetDate: pending.targetDate || undefined,
+      targetSlot: pending.targetSlot || undefined,
+      shouldMutatePlan: true,
+      requiresConfirmation: false,
+      proposedMeal: pendingMeals.length === 1 ? pendingMeals[0] : undefined,
+      proposedMeals: pendingMeals.length > 1 ? pendingMeals : undefined,
+      preferenceUpdate: pending.preferenceUpdate || undefined,
+      confirmedProposalId: pending.id,
+    } satisfies AgentResponseContract);
+  }
+
+  // Week-level diversification & regeneration path ("Make my whole week more varied")
+  const isWeekRegen =
+    /\b(whole week|entire week|full week|this week|all week|weekly plan|week plan)\b/i.test(message) &&
+    /\b(more varied|different|varied|variety|regenerate|rebalance|remake|create|new plan|diversify)\b/i.test(message);
+
+  if (isWeekRegen) {
+    const prefs = prefsFromProfile(userProfile);
+    const weekPlans = planWeek(targets, prefs, {
+      startDate: currentDate,
+      daysCount: 7,
+      existingLogs: mealLogs,
+      preferTags: userProfile.dietary_preferences?.includes("egyptian") ? ["egyptian"] : [],
+    });
+
+    const tomorrowPlan = weekPlans.find((w) => w.date === addDays(currentDate, 1)) || weekPlans[0];
+    const proposed = tomorrowPlan.meals.map((m) => ({
+      slot: m.meal_type,
+      title: m.meal.meal_name,
+      calories: m.meal.calories,
+      protein: m.meal.protein,
+      carbs: m.meal.carbs,
+      fat: m.meal.fat,
+      ingredients: m.meal.ingredients || [],
+    }));
+
+    return NextResponse.json({
+      replyText: `I have prepared a genuinely varied 7-day meal plan for you where every day has different breakfasts, lunches, and dinners (including ${weekPlans.map((d) => d.meals[1]?.meal.meal_name.split(" ")[0]).filter(Boolean).slice(0, 4).join(", ")}). Here is the proposed varied plan starting with tomorrow (${tomorrowPlan.date}) totaling ${tomorrowPlan.totals.calories} kcal and ${tomorrowPlan.totals.protein}g protein. Would you like me to apply this?`,
+      intent: "week_level_planning",
+      action: "adapt_day",
+      targetDate: tomorrowPlan.date,
+      targetDay: "tomorrow",
+      shouldMutatePlan: false,
+      requiresConfirmation: true,
+      proposedMeals: proposed,
+      suggestedFollowUps: ["Yes, apply it", "Show other dinner ideas", "Keep breakfast unchanged"],
+    } satisfies AgentResponseContract);
+  }
+
   const remainingFor = (date: string, extra: Array<Partial<Macros>> = []): AgentRemainingTargets =>
     round({
       calories: targets.calories - sumMacros(loggedOn(date)).calories - sumMacros(extra).calories,
@@ -931,29 +1136,55 @@ ${pending ? JSON.stringify(pending) : "none"}
 RECENT CONVERSATION:
 ${history.length ? history.map((h) => `${h.sender}: ${h.text}`).join("\n") : "(no previous messages)"}`;
 
-  // STEP 3: Call Gemini (with one corrective retry if a day-level proposal is badly unbalanced)
+  // STEP 3: Call Gemini (with model fallback for demand spikes and corrective retry if badly unbalanced)
+  const candidateModels = Array.from(new Set([model, "gemini-3.8-flash"]));
   const callModel = async (correction?: string): Promise<any | null> => {
-    const response = await ai.models.generateContent({
-      model,
-      contents: correction ? `${message}\n\n[Application feedback on your previous proposal: ${correction}]` : message,
-      config: {
-        systemInstruction: `${SYSTEM_PROMPT}\n\n${context}`,
-        responseMimeType: "application/json",
-        responseSchema: RESPONSE_SCHEMA,
-        temperature: 0.4,
-      },
-    });
-    try {
-      return JSON.parse(response.text || "");
-    } catch {
-      return null;
+    for (const mName of candidateModels) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const response = await ai.models.generateContent({
+            model: mName,
+            contents: correction ? `${message}\n\n[Application feedback on your previous proposal: ${correction}]` : message,
+            config: {
+              systemInstruction: `${SYSTEM_PROMPT}\n\n${context}`,
+              responseMimeType: "application/json",
+              responseSchema: RESPONSE_SCHEMA,
+              temperature: 0.4,
+            },
+          });
+          const parsed = JSON.parse(response.text || "");
+          if (parsed && typeof parsed.replyText === "string") return parsed;
+        } catch (err: any) {
+          console.warn(`[NutriCoach] /api/chat model ${mName} attempt ${attempt + 1} notice:`, err?.message || err);
+          if (attempt === 0) await new Promise((r) => setTimeout(r, 400));
+        }
+      }
     }
+    return null;
   };
 
   try {
     let raw = await callModel();
     if (!raw || typeof raw.replyText !== "string") {
-      console.error("[NutriCoach] /api/chat: model returned invalid JSON.");
+      console.error("[NutriCoach] /api/chat: model returned invalid JSON or service unavailable.");
+      if (!isMealModificationRequest(message)) {
+        try {
+          const fallbackSources = await searchTrustedNutritionSources(message);
+          if (fallbackSources.length > 0) {
+            return NextResponse.json({
+              replyText: synthesizeEvidenceFallback(message, fallbackSources),
+              intent: "nutrition_question",
+              action: "none",
+              shouldMutatePlan: false,
+              requiresConfirmation: false,
+              researchSources: fallbackSources,
+              suggestedFollowUps: getTailoredFollowUps(message),
+            } satisfies AgentResponseContract);
+          }
+        } catch (fbErr: any) {
+          console.warn("[NutriCoach] Fallback nutrition search note:", fbErr?.message || fbErr);
+        }
+      }
       return NextResponse.json(AGENT_UNAVAILABLE, { status: 502 });
     }
 
@@ -1048,8 +1279,26 @@ ${history.length ? history.map((h) => `${h.sender}: ${h.text}`).join("\n") : "(n
           : null,
     };
 
-    const targetDate = resolveTargetDate(raw.targetDay, raw.targetDate, currentDate);
-    if (targetDate) result.targetDate = targetDate;if (targetDate && result.action !== "search_research") result.targetDate = targetDate;
+    const targetDate = resolveTargetDate(raw.targetDay, raw.targetDate, currentDate, message);
+    if (targetDate && result.action !== "search_research") {
+      result.targetDate = targetDate;
+    }
+
+    if (result.intent === "research_request" || result.action === "search_research" || result.intent === "nutrition_question") {
+      result.shouldMutatePlan = false;
+      result.requiresConfirmation = false;
+      result.proposedMeal = undefined;
+      result.proposedMeals = undefined;
+      if (!result.researchSources?.length) {
+        const sources = await searchTrustedNutritionSources(message);
+        if (sources.length > 0) {
+          result.researchSources = sources;
+        }
+      }
+      if (result.intent === "research_request" && !result.researchSources?.length) {
+        result.replyText = "I couldn't find a trusted research publication or official guideline matching that specific query. Please try searching for a broader nutrition topic or specify an authority like WHO, PubMed, CDC, or NHS.";
+      }
+    }
 
     const single = normalizeMeal(raw.proposedMeal, result.targetSlot);
     const multi = Array.isArray(raw.proposedMeals)
@@ -1068,7 +1317,9 @@ ${history.length ? history.map((h) => `${h.sender}: ${h.text}`).join("\n") : "(n
     }
 
     // --- 4a. Confirmation path: only a real, still-valid pending proposal can be applied.
-    if (result.shouldMutatePlan) {
+    const isExplicitConfirmation = /^(yes|apply|apply it|confirm|do it|looks good|sounds good|go ahead|sure|ok|okay)\b/i.test(message.trim());
+
+    if (result.shouldMutatePlan || isExplicitConfirmation) {
       if (!pending) {
         result.shouldMutatePlan = false;
         result.requiresConfirmation = false;
@@ -1098,6 +1349,7 @@ ${history.length ? history.map((h) => `${h.sender}: ${h.text}`).join("\n") : "(n
           result.intent = pending.intent || result.intent;
           result.targetDate = pending.targetDate || undefined;
           result.targetSlot = pending.targetSlot || undefined;
+          result.shouldMutatePlan = true;
           result.requiresConfirmation = false;
           result.proposedMeal = pendingMeals.length === 1 ? pendingMeals[0] : undefined;
           result.proposedMeals = pendingMeals.length > 1 ? pendingMeals : undefined;

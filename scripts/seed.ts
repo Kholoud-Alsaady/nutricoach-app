@@ -7,6 +7,7 @@ import { createClient } from "@supabase/supabase-js";
 import { addDays, todayISO } from "../src/lib/dates";
 import { FOODS, foodToSnapshot } from "../src/lib/foods";
 import { caloriesFromMacros } from "../src/lib/nutrition";
+import { planWeek, prefsFromProfile } from "../src/lib/planner";
 import {
   DEMO_ADMIN_ID,
   DEMO_COACH,
@@ -113,9 +114,9 @@ async function main() {
     const koftaBread = foodToSnapshot(FOODS.find((f) => f.id === "kofta-bread")!);
     const fishRice = foodToSnapshot(FOODS.find((f) => f.id === "fish-rice")!);
 
-    // Populate Planned Meals across 20 days (startDate -> endDate)
+    // Populate Planned Meals: Past days (-13 to -1) and varied upcoming week (0 to 6)
     const plannedRows: any[] = [];
-    for (let d = -13; d <= 6; d++) {
+    for (let d = -13; d <= -1; d++) {
       const date = addDays(today, d);
       plannedRows.push(
         { plan_id: planId, member_id: m.id, date, meal_type: "breakfast", meal_name: fulEggs.meal_name, calories: fulEggs.calories, protein: fulEggs.protein, carbs: fulEggs.carbs, fat: fulEggs.fat, ingredients: fulEggs.ingredients, tags: fulEggs.tags, source: "coach" },
@@ -123,6 +124,46 @@ async function main() {
         { plan_id: planId, member_id: m.id, date, meal_type: "snack", meal_name: yogurtBerries.meal_name, calories: yogurtBerries.calories, protein: yogurtBerries.protein, carbs: yogurtBerries.carbs, fat: yogurtBerries.fat, ingredients: yogurtBerries.ingredients, tags: yogurtBerries.tags, source: "coach" },
         { plan_id: planId, member_id: m.id, date, meal_type: "dinner", meal_name: d % 2 === 0 ? koftaBread.meal_name : fishRice.meal_name, calories: d % 2 === 0 ? koftaBread.calories : fishRice.calories, protein: d % 2 === 0 ? koftaBread.protein : fishRice.protein, carbs: d % 2 === 0 ? koftaBread.carbs : fishRice.carbs, fat: d % 2 === 0 ? koftaBread.fat : fishRice.fat, ingredients: d % 2 === 0 ? koftaBread.ingredients : fishRice.ingredients, tags: d % 2 === 0 ? koftaBread.tags : fishRice.tags, source: "coach" }
       );
+    }
+
+    // Varied 7-day plan for upcoming days
+    const upcomingWeek = planWeek(
+      {
+        calories: m.targets.calories,
+        protein: m.targets.protein,
+        carbs: m.targets.carbs,
+        fat: m.targets.fat,
+      },
+      prefsFromProfile({
+        disliked_foods: m.disliked_foods,
+        allergies: m.allergies,
+        dietary_preferences: m.dietary_preferences,
+        dietary_style: m.dietary_style,
+      }),
+      {
+        startDate: today,
+        daysCount: 7,
+        preferTags: m.dietary_preferences.includes("egyptian") ? ["egyptian"] : [],
+      }
+    );
+
+    for (const dayPlan of upcomingWeek) {
+      for (const item of dayPlan.meals) {
+        plannedRows.push({
+          plan_id: planId,
+          member_id: m.id,
+          date: dayPlan.date,
+          meal_type: item.meal_type,
+          meal_name: item.meal.meal_name,
+          calories: item.meal.calories,
+          protein: item.meal.protein,
+          carbs: item.meal.carbs,
+          fat: item.meal.fat,
+          ingredients: item.meal.ingredients || [],
+          tags: item.meal.tags || [item.meal_type, "coach"],
+          source: "coach",
+        });
+      }
     }
     await supabase.from("planned_meals").insert(plannedRows);
 

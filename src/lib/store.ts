@@ -9,7 +9,7 @@ import { addDays, todayISO } from "./dates";
 import { FOODS, foodToSnapshot } from "./foods";
 import { impactFor, measureImpact, modelRoi } from "./impact";
 import { checkMeal, normalizeMacros, scaleMacros, subtractMacros, sumMacros, verifyMeals } from "./nutrition";
-import { baseName, planDay, planSlots, prefsFromProfile, suggestMeals } from "./planner";
+import { baseName, planDay, planSlots, planWeek, prefsFromProfile, suggestMeals } from "./planner";
 import {
   DEMO_ADMIN_ID,
   DEMO_COACH,
@@ -117,7 +117,8 @@ export function createInitialDemoState(): DemoState {
     const omarKofta = { meal_name: "Lean grilled kofta with tahini & baladi bread", calories: 700, protein: 44, carbs: 70, fat: 26, ingredients: ["lean beef", "onions", "parsley", "baladi bread", "tahini"], tags: ["dinner", "beef", "egyptian"] };
     const omarFish = { meal_name: "Grilled sea bass with brown rice & salad", calories: 690, protein: 48, carbs: 72, fat: 20, ingredients: ["sea bass", "brown rice", "mixed greens", "lemon"], tags: ["dinner", "fish", "pescatarian"] };
 
-    for (let d = -13; d <= 6; d++) {
+    // Past planned meals (-13 to -1) reflecting adherence history
+    for (let d = -13; d <= -1; d++) {
       const date = addDays(today, d);
       if (m.scenario === "stable") {
         pMeals.push(
@@ -133,6 +134,43 @@ export function createInitialDemoState(): DemoState {
           { id: `p-${m.id}-${date}-s`, plan_id: `plan-${m.id}`, member_id: m.id, date, meal_type: "snack", meal_name: yogurtBerries.meal_name, calories: yogurtBerries.calories, protein: yogurtBerries.protein, carbs: yogurtBerries.carbs, fat: yogurtBerries.fat, ingredients: yogurtBerries.ingredients, tags: yogurtBerries.tags, source: "coach", updated_at: new Date().toISOString() },
           { id: `p-${m.id}-${date}-d`, plan_id: `plan-${m.id}`, member_id: m.id, date, meal_type: "dinner", meal_name: d % 2 === 0 ? koftaBread.meal_name : fishRice.meal_name, calories: d % 2 === 0 ? koftaBread.calories : fishRice.calories, protein: d % 2 === 0 ? koftaBread.protein : fishRice.protein, carbs: d % 2 === 0 ? koftaBread.carbs : fishRice.carbs, fat: d % 2 === 0 ? koftaBread.fat : fishRice.fat, ingredients: d % 2 === 0 ? koftaBread.ingredients : fishRice.ingredients, tags: d % 2 === 0 ? koftaBread.tags : fishRice.tags, source: "coach", updated_at: new Date().toISOString() }
         );
+      }
+    }
+
+    // Varied 7-day meal plan for upcoming days (0 to 6)
+    const upcomingWeek = planWeek(
+      targets[m.id],
+      prefsFromProfile({
+        disliked_foods: m.disliked_foods,
+        allergies: m.allergies,
+        dietary_preferences: m.dietary_preferences,
+        dietary_style: m.dietary_style,
+      }),
+      {
+        startDate: today,
+        daysCount: 7,
+        preferTags: m.dietary_preferences.includes("egyptian") ? ["egyptian"] : [],
+      }
+    );
+
+    for (const dayPlan of upcomingWeek) {
+      for (const item of dayPlan.meals) {
+        pMeals.push({
+          id: `p-${m.id}-${dayPlan.date}-${item.meal_type.charAt(0)}`,
+          plan_id: `plan-${m.id}`,
+          member_id: m.id,
+          date: dayPlan.date,
+          meal_type: item.meal_type,
+          meal_name: item.meal.meal_name,
+          calories: item.meal.calories,
+          protein: item.meal.protein,
+          carbs: item.meal.carbs,
+          fat: item.meal.fat,
+          ingredients: item.meal.ingredients || [],
+          tags: item.meal.tags || [item.meal_type, "coach"],
+          source: "coach",
+          updated_at: new Date().toISOString(),
+        });
       }
     }
     plannedMeals[m.id] = pMeals;
