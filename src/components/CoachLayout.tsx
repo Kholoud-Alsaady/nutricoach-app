@@ -197,7 +197,7 @@ export function CoachLayout() {
           </div>
 
           {/* Quick Status Summary Row */}
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-4 gap-3" data-tour="coach-overview-metrics">
             <div className="bg-surface rounded-lg border border-border p-3.5 shadow-hairline">
               <div className="text-[11px] text-ink-muted">Active Members</div>
               <div className="text-lg font-semibold text-ink-primary mt-0.5">48 athletes</div>
@@ -227,7 +227,7 @@ export function CoachLayout() {
           {coachTab === "overview" && (
             <div className="space-y-6">
               {/* Team Consistency & Adherence Diagram */}
-              <div className="bg-surface rounded-lg border border-border p-5 shadow-card space-y-3">
+              <div className="bg-surface rounded-lg border border-border p-5 shadow-card space-y-3" data-tour="coach-adherence-panel">
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="text-xs font-medium text-ink-primary">Team Consistency & Weekly Adherence</h3>
@@ -269,7 +269,7 @@ export function CoachLayout() {
               </div>
 
               {/* Summary Worklist Section */}
-              <div className="bg-surface rounded-lg border border-border p-4 shadow-card space-y-3">
+              <div className="bg-surface rounded-lg border border-border p-4 shadow-card space-y-3" data-tour="coach-member-roster">
                 <div className="flex items-center justify-between border-b border-border pb-2">
                   <h3 className="text-xs font-semibold text-ink-primary">Active Members Triage Preview</h3>
                   <button
@@ -311,7 +311,7 @@ export function CoachLayout() {
 
           {/* 2. NEEDS ATTENTION / TRIAGE TAB */}
           {coachTab === "triage" && (
-            <div className="space-y-4">
+            <div className="space-y-4" data-tour="coach-triage-panel">
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-xs font-semibold text-ink-primary">Priority Triage Queue</h3>
@@ -352,7 +352,7 @@ export function CoachLayout() {
 
           {/* 3. MEMBER QUESTIONS TAB */}
           {coachTab === "questions" && (
-            <div className="bg-surface rounded-lg border border-border shadow-card overflow-hidden">
+            <div className="bg-surface rounded-lg border border-border shadow-card overflow-hidden" data-tour="coach-questions-panel">
               <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
                 <div>
                   <h3 className="text-xs font-semibold text-ink-primary">Member Questions & Coaching Channel</h3>
@@ -507,7 +507,7 @@ export function CoachLayout() {
 
           {/* 4. AGENT ACTIVITY LOG TAB */}
           {coachTab === "audit" && (
-            <div className="bg-surface rounded-lg border border-border shadow-card overflow-hidden">
+            <div className="bg-surface rounded-lg border border-border shadow-card overflow-hidden" data-tour="coach-audit-panel">
               <div className="px-4 py-3 border-b border-border flex items-center justify-between">
                 <div>
                   <h3 className="text-xs font-medium text-ink-primary">Agent Activity Audit Log</h3>
@@ -536,7 +536,7 @@ export function CoachLayout() {
 
                         <p className="text-ink-secondary leading-relaxed">{act.summary}</p>
 
-                        <div className="flex items-center gap-2 text-[10px] text-ink-muted">
+                        <div className="flex items-center gap-2 text-[10px] text-ink-muted" data-tour="coach-economics-card">
                           <span>
                             Manual: <strong>{act.estimated_manual_minutes}m</strong>
                           </span>

@@ -410,7 +410,7 @@ export function MealPlanView() {
       </div>
 
       {/* Selected Day Plan Card */}
-      <div className="bg-surface rounded-lg border border-border p-4 shadow-card space-y-4">
+      <div className="bg-surface rounded-lg border border-border p-4 shadow-card space-y-4" data-tour="member-plan-section">
         <div className="flex items-center justify-between border-b border-border pb-3">
           <div>
             <h3 className="text-xs font-medium text-ink-primary flex items-center gap-2">
@@ -497,6 +497,7 @@ export function MealPlanView() {
 
                 <button
                   onClick={() => openReplaceModal(slotType)}
+                  data-tour="member-meal-swap"
                   className="text-[11px] text-ink-secondary hover:text-brand px-2.5 py-1 rounded border border-border hover:bg-surface-subtle transition-colors flex items-center gap-1"
                 >
                   <RefreshCw className="w-3 h-3" />

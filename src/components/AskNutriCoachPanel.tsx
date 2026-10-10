@@ -1585,7 +1585,10 @@ export function AskNutriCoachPanel() {
   };
 
   return (
-    <aside className="w-[340px] shrink-0 border-l border-border bg-canvas flex flex-col justify-between h-screen sticky top-0 px-4 py-5 select-none">
+    <aside
+      data-tour="member-ask-nutricoach"
+      className="w-[340px] shrink-0 border-l border-border bg-canvas flex flex-col justify-between h-screen sticky top-0 px-4 py-5 select-none"
+    >
       {/* Header */}
       <div className="space-y-3">
         <div className="flex items-center justify-between pb-2 border-b border-border">

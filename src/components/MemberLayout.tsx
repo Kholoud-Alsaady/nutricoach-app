@@ -100,7 +100,7 @@ export function MemberLayout() {
 
           {/* Member Content Routing */}
           {state.activeTab === "today" && (
-            <div className="space-y-4">
+            <div className="space-y-4" data-tour="member-today-overview">
               {/* Flat Macro Summary Row */}
               <MacroSummary />
 

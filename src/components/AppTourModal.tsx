@@ -1,14 +1,11 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   ArrowLeft,
   ArrowRight,
-  BookOpen,
   CheckCircle2,
   Compass,
-  HelpCircle,
-  Sparkles,
   X,
 } from "lucide-react";
 
@@ -16,116 +13,117 @@ export interface TourStep {
   title: string;
   category: string;
   targetTab?: string;
+  selector: string;
   description: string;
-  keyPoints: string[];
+  keyPoints?: string[];
   interfaceTip?: string;
+  preferredPlacement?: "bottom" | "top" | "right" | "left";
 }
 
 export const MEMBER_TOUR_STEPS: TourStep[] = [
   {
-    title: "Member Dashboard & Nutrition Overview",
+    title: "Today's Nutrition Overview",
     category: "Today Overview",
     targetTab: "today",
+    selector: '[data-tour="member-today-overview"]',
     description:
-      "Your daily command center shows real-time progress toward your energy and macronutrient targets. Track calories, protein, carbohydrates, and fats calculated specifically for your body and fitness goals.",
+      "Your daily command center shows live progress toward your energy and macronutrient targets. Calorie and macro bars update in real time as you log meals.",
     keyPoints: [
-      "Live macro bars update as meals are logged throughout the day.",
-      "Today's Curated Tip provides evidence-based daily nutrition insights.",
+      "Live macro bars update as meals are logged.",
       "Adaptive adjustment proposals appear dynamically if deviations occur.",
     ],
-    interfaceTip: "Located in the 'Today' tab at the top of your workspace.",
+    preferredPlacement: "bottom",
   },
   {
     title: "Personalized Daily Meal Plan",
     category: "Daily Meals",
-    targetTab: "today",
+    targetTab: "plan",
+    selector: '[data-tour="member-plan-section"]',
     description:
       "Review your planned breakfast, lunch, snack, and dinner. Each recipe is balanced to fit your targets, incorporating Egyptian and international wholesome foods.",
     keyPoints: [
-      "Displays planned calorie and protein distribution per meal slot.",
-      "One-click 'Log as Planned' confirms exact meal adherence.",
-      "Click 'Swap' on any meal card to explore coach-verified alternatives.",
+      "Planned calorie and protein distribution per meal slot.",
+      "Browse 7-day variation and upcoming days.",
     ],
-    interfaceTip: "Scroll down the 'Today' view to browse individual meal cards.",
+    preferredPlacement: "bottom",
   },
   {
-    title: "Dietary Preferences, Allergies & Intolerances",
-    category: "Safety Guardrails",
-    targetTab: "profile",
-    description:
-      "Manage your strict safety guardrails and taste preferences directly in your profile. Allergies and intolerances serve as hard constraints across all meal generation.",
-    keyPoints: [
-      "Allergies & intolerances (e.g. peanuts, lactose, gluten) are strictly excluded.",
-      "Excluded foods (e.g. tuna, chicken, mushrooms) are skipped by the planner.",
-      "Dietary pattern options include Standard, Vegetarian, Vegan, Pescatarian, and Keto.",
-      "Add custom allergens or excluded ingredients and click 'Save Changes' to update.",
-    ],
-    interfaceTip: "Accessible under the 'Profile' tab in the left sidebar.",
-  },
-  {
-    title: "Meal Logging & Completed Meals",
-    category: "Tracking",
-    targetTab: "today",
-    description:
-      "Accurately record what you ate. You can log planned meals with one click, or log off-plan foods to let the system understand your real daily intake.",
-    keyPoints: [
-      "Logs automatically update remaining calories and macros.",
-      "Deviations are detected without guilt, shame, or judgment.",
-      "Eaten meals are locked to protect historical adherence records.",
-    ],
-    interfaceTip: "Use the '+ Log Extra Meal' or 'Log as Planned' buttons on meal cards.",
-  },
-  {
-    title: "Adaptive Meal Swaps & Auto-Balance",
+    title: "Smart Meal Swaps & Alternatives",
     category: "Meal Adaptation",
     targetTab: "plan",
+    selector: '[data-tour="member-meal-swap"]',
     description:
-      "Need a change? NutriCoach adapts your upcoming meals to keep your weekly energy balanced without forcing rigid, repetitive meals.",
+      "Need a change? Tap Replace on any meal slot to view coach-verified alternatives that strictly honor your saved allergies and dietary preferences.",
     keyPoints: [
-      "Weekly Auto-Balance smoothly spreads minor calorie deviations over upcoming days.",
-      "Meal swaps respect all saved allergies, dislikes, and dietary patterns.",
-      "Pending proposals always require your clear confirmation before changing your plan.",
+      "Instant alternative recipes matching your slot budget.",
+      "Strictly respects all saved allergies and disliked foods.",
     ],
-    interfaceTip: "Explore upcoming days and weekly variations in the 'Meal Plan' tab.",
+    preferredPlacement: "left",
   },
   {
-    title: "Ask NutriCoach AI Assistant",
-    category: "AI Nutritionist",
+    title: "Meal Logging Controls",
+    category: "Tracking",
     targetTab: "today",
+    selector: '[data-tour="member-meal-log"]',
     description:
-      "Ask general nutrition questions, explore scientific research, or request meal changes in conversational natural language.",
+      "Record completed meals with one click using 'Ate planned', or enter custom portions to keep your daily intake accurate without guilt or judgment.",
     keyPoints: [
-      "Evidence-based responses cite authoritative sources like WHO, PubMed, and CDC.",
-      "Greetings receive natural, personalized responses using your preferred name.",
-      "Plan adjustments trigger an interactive confirmation card before applying.",
+      "One-click logging for planned meals.",
+      "Support for custom off-plan portions.",
     ],
-    interfaceTip: "Always available in the 'Ask NutriCoach' right sidebar panel.",
+    preferredPlacement: "top",
+  },
+  {
+    title: "Dietary Preferences & Guardrails",
+    category: "Safety Guardrails",
+    targetTab: "profile",
+    selector: '[data-tour="member-dietary-guardrails"]',
+    description:
+      "Manage food allergies, intolerances, and disliked ingredients directly. Allergies act as strict safety guardrails, while disliked foods guide meal variety.",
+    keyPoints: [
+      "Allergies & intolerances are strictly excluded across all meals.",
+      "Excluded foods and dietary patterns guide planner variety.",
+    ],
+    preferredPlacement: "top",
+  },
+  {
+    title: "Calibrated Member Profile",
+    category: "Settings & Targets",
+    targetTab: "profile",
+    selector: '[data-tour="member-profile-overview"]',
+    description:
+      "Review your personal target calories, BMR metrics, weight goals, and activity level prescribed by your coaching staff.",
+    keyPoints: [
+      "Calibrated BMR and target macros.",
+      "Quantitative goals and body composition deltas.",
+    ],
+    preferredPlacement: "bottom",
   },
   {
     title: "Adherence History & Progress Trends",
     category: "Analytics",
     targetTab: "progress",
+    selector: '[data-tour="member-progress-content"]',
     description:
-      "Review historical tracking consistency, macro hit rates, and adherence trends over the past 7–10 days to understand long-term habit sustainability.",
+      "Review historical tracking consistency, macro hit rates, and adherence trends over the past 7–14 days to understand long-term habit sustainability.",
     keyPoints: [
-      "Inspect planned vs. logged calorie deviances day by day.",
-      "Visual adherence badges highlight consistent tracking habits.",
-      "Quantitative target deltas track weight and body composition goals.",
+      "Visual adherence badges highlight consistent tracking.",
+      "Planned vs. logged telemetry day by day.",
     ],
-    interfaceTip: "Click 'Progress' in the left sidebar to view telemetry trends.",
+    preferredPlacement: "bottom",
   },
   {
-    title: "Member Profile & Coach Verified Targets",
-    category: "Settings",
-    targetTab: "profile",
+    title: "Ask NutriCoach AI Assistant",
+    category: "AI Guidance",
+    targetTab: "today",
+    selector: '[data-tour="member-ask-nutricoach"]',
     description:
-      "Your member profile contains your calibrated BMR targets, activity level, personal goals, and editable dietary preferences.",
+      "Ask nutrition questions, explore research from trusted authorities (WHO, PubMed), or request conversational meal adjustments in natural language.",
     keyPoints: [
-      "Prescribed daily calorie, protein, carbohydrate, and fat targets.",
-      "Activity level and personal identity identity settings.",
-      "Quick access to update safety guardrails whenever your dietary needs change.",
+      "Evidence-based responses cite authoritative scientific sources.",
+      "Natural greetings and meal adjustments with confirmation cards.",
     ],
-    interfaceTip: "Click 'Profile' in the navigation sidebar anytime.",
+    preferredPlacement: "left",
   },
 ];
 
@@ -134,101 +132,114 @@ export const COACH_TOUR_STEPS: TourStep[] = [
     title: "Coach Dashboard & Business Overview",
     category: "Overview",
     targetTab: "overview",
+    selector: '[data-tour="coach-overview-metrics"]',
     description:
-      "Welcome to your gym coaching hub. Monitor your entire roster of active members, overall team consistency, and high-level engagement at a glance.",
+      "Monitor your entire roster of active members, overall team consistency, and high-level engagement at a glance.",
     keyPoints: [
       "Track active member count, stable adherence, and triage exceptions.",
-      "Aggregate weekly consistency graph highlights 7-day adherence trends.",
-      "Quantifies automated AI adaptations and coach hours returned to your team.",
+      "Quantifies automated AI adaptations and coach hours returned.",
     ],
-    interfaceTip: "Located on the 'Overview' tab in the coach navigation sidebar.",
+    preferredPlacement: "bottom",
   },
   {
     title: "Member Management & App Preview",
     category: "Members",
     targetTab: "overview",
+    selector: '[data-tour="coach-member-roster"]',
     description:
-      "Inspect individual athletes on your roster. You can preview any member's app interface in real time to understand their daily plan from their perspective.",
+      "Inspect individual athletes on your roster and use 'Preview App' to inspect any athlete's live dashboard from their perspective.",
     keyPoints: [
-      "Browse active members and their prescribed goals (fat loss, hypertrophy, maintenance).",
-      "One-click 'Preview App' allows inspecting any athlete's live dashboard.",
-      "Seamless role switching lets you test and verify changes instantly.",
+      "Browse active members and their prescribed goals.",
+      "One-click app preview for instant verification.",
     ],
-    interfaceTip: "Click 'Preview Layla's App' or any member card to preview.",
+    preferredPlacement: "top",
   },
   {
     title: "Reviewing Member Logs & Adherence",
     category: "Tracking",
     targetTab: "overview",
+    selector: '[data-tour="coach-adherence-panel"]',
     description:
-      "Review real-time meal logging patterns across your gym. Catch adherence gaps early before they become persistent training setbacks.",
+      "Review real-time meal logging patterns across your gym to catch adherence gaps early before they become persistent setbacks.",
     keyPoints: [
-      "Examine planned vs. logged macros across breakfast, lunch, snack, and dinner.",
-      "Identify patterns such as protein deficits or weekend carbohydrate surges.",
-      "Verifiable adherence data replaces guesswork with clear habit telemetry.",
+      "Examine aggregate 7-day team consistency trends.",
+      "Identify patterns such as weekend deviation dips.",
     ],
-    interfaceTip: "Review the 'Team Consistency & Weekly Adherence' panel.",
+    preferredPlacement: "bottom",
   },
   {
-    title: "Identifying Members Needing Follow-up",
+    title: "Priority Triage Queue: Needs Attention",
     category: "Triage",
     targetTab: "triage",
+    selector: '[data-tour="coach-triage-panel"]',
     description:
-      "The 'Needs Attention' triage queue flags athletes who experienced deviations, missed multiple days of tracking, or have pending adaptations.",
+      "Quickly identify athletes experiencing nutritional deviations, missed tracking days, or pending compensatory meal adjustments.",
     keyPoints: [
-      "Prioritizes athletes based on behavioral exceptions and logging gaps.",
-      "Contextual badges show issue types (e.g. Dinner Rebalance, Inactivity).",
-      "Enables proactive outreach before members lose momentum.",
+      "Prioritizes athletes based on behavioral exceptions.",
+      "Contextual badges show issue types for rapid outreach.",
     ],
-    interfaceTip: "Switch to 'Needs Attention' in the coach navigation sidebar.",
+    preferredPlacement: "bottom",
   },
   {
-    title: "Reviewing Exceptions & Human Coach Review",
+    title: "Reviewing Exceptions & Human Oversight",
     category: "Action Review",
     targetTab: "audit",
+    selector: '[data-tour="coach-audit-panel"]',
     description:
-      "Human-in-the-loop oversight: review proposed meal adaptations before they take effect. Approve or reject AI proposals with a single click.",
+      "Maintain clinical oversight: review proposed AI meal adaptations before they take effect. Approve or reject actions with a single click.",
     keyPoints: [
-      "AI prepares reasoned meal proposals with macro balancing rationale.",
-      "Coaches retain final authority to approve or reject actions.",
-      "Ensures professional clinical and athletic standards are strictly maintained.",
+      "Human-in-the-loop validation for automated adjustments.",
+      "Coaches retain final authority over all meal adjustments.",
     ],
-    interfaceTip: "Check pending actions in 'Agent Activity Log' or triage queue.",
+    preferredPlacement: "bottom",
   },
   {
-    title: "Direct Coach Messaging & Rapid Templates",
+    title: "Direct Coach Messaging & Templates",
     category: "Communication",
     targetTab: "questions",
+    selector: '[data-tour="coach-questions-panel"]',
     description:
-      "Engage directly with your athletes. Reply to incoming member questions using pre-calibrated quick templates or custom personalized coaching notes.",
+      "Engage directly with your athletes. View message threads with logging context and send personalized notes or rapid coaching templates.",
     keyPoints: [
-      "View member question threads with full context on their latest logs.",
-      "One-click fast coaching templates for common nutrition guidance.",
-      "Direct communication builds coach trust and keeps athletes motivated.",
+      "Bidirectional messaging with member logging context.",
+      "Rapid one-click templates for common nutrition guidance.",
     ],
-    interfaceTip: "Select 'Member Questions' in the coach navigation sidebar.",
+    preferredPlacement: "top",
   },
   {
     title: "Agent Operations & Gym Economics",
     category: "ROI & Impact",
     targetTab: "audit",
+    selector: '[data-tour="coach-economics-card"]',
     description:
-      "Inspect the operations audit log to see exactly how the AI agent supports your workflow, including calculated manual minutes saved per member.",
+      "Review verifiable operational time savings, showing manual coach minutes saved per member without exaggerated health claims.",
     keyPoints: [
-      "Verifiable breakdown of manual minutes vs. agent minutes per operation.",
-      "Calculated time savings allow coaches to focus on high-touch member care.",
-      "Engagement indicators reflect real app activity without exaggerated health claims.",
+      "Verifiable breakdown of manual minutes vs. agent minutes.",
+      "Calculated time savings allow focus on high-touch member care.",
     ],
-    interfaceTip: "Open 'Agent Activity Log' in the coach navigation sidebar.",
+    preferredPlacement: "top",
   },
 ];
 
-interface AppTourModalProps {
+export interface AppTourModalProps {
   isOpen: boolean;
   onClose: () => void;
   tourType: "member" | "coach";
   onTabChange?: (tab: string) => void;
   initialTab?: string;
+}
+
+interface TargetPosition {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+}
+
+interface TooltipCoords {
+  top: number;
+  left: number;
+  placement: "bottom" | "top" | "left" | "right";
 }
 
 export function AppTourModal({
@@ -240,13 +251,14 @@ export function AppTourModal({
 }: AppTourModalProps) {
   const steps = tourType === "member" ? MEMBER_TOUR_STEPS : COACH_TOUR_STEPS;
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
+  const [targetRect, setTargetRect] = useState<TargetPosition | null>(null);
+  const [tooltipCoords, setTooltipCoords] = useState<TooltipCoords | null>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
 
-  // Sync background tab when step changes
-  useEffect(() => {
-    if (isOpen && steps[currentStepIndex]?.targetTab && onTabChange) {
-      onTabChange(steps[currentStepIndex].targetTab!);
-    }
-  }, [isOpen, currentStepIndex, steps, onTabChange]);
+  const currentStep = steps[currentStepIndex];
+  const isFirst = currentStepIndex === 0;
+  const isLast = currentStepIndex === steps.length - 1;
+  const progressPercent = Math.round(((currentStepIndex + 1) / steps.length) * 100);
 
   const handleClose = useCallback(() => {
     // Restore initial tab if provided
@@ -254,6 +266,8 @@ export function AppTourModal({
       onTabChange(initialTab);
     }
     setCurrentStepIndex(0);
+    setTargetRect(null);
+    setTooltipCoords(null);
     onClose();
   }, [initialTab, onTabChange, onClose]);
 
@@ -269,12 +283,117 @@ export function AppTourModal({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, handleClose]);
 
-  if (!isOpen) return null;
+  // Navigate background tab when step changes
+  useEffect(() => {
+    if (!isOpen) return;
+    if (currentStep?.targetTab && onTabChange) {
+      onTabChange(currentStep.targetTab);
+    }
+  }, [isOpen, currentStepIndex, currentStep, onTabChange]);
 
-  const currentStep = steps[currentStepIndex];
-  const isFirst = currentStepIndex === 0;
-  const isLast = currentStepIndex === steps.length - 1;
-  const progressPercent = Math.round(((currentStepIndex + 1) / steps.length) * 100);
+  // Update target element location and tooltip coordinates
+  const updatePosition = useCallback(() => {
+    if (!isOpen || !currentStep) return;
+
+    const el = document.querySelector(currentStep.selector);
+    if (!el) {
+      // Element not yet mounted (e.g. during tab transition); retry in a moment
+      return false;
+    }
+
+    const rect = el.getBoundingClientRect();
+    const pos: TargetPosition = {
+      top: rect.top,
+      left: rect.left,
+      width: rect.width,
+      height: rect.height,
+    };
+    setTargetRect(pos);
+
+    // Compute tooltip placement
+    const tooltipWidth = 320;
+    const tooltipHeight = 180;
+    const padding = 12;
+    const viewportW = window.innerWidth;
+    const viewportH = window.innerHeight;
+
+    let placement: "bottom" | "top" | "left" | "right" = currentStep.preferredPlacement || "bottom";
+
+    // Adaptive fallback if preferred placement overflows screen
+    if (placement === "right" && rect.right + tooltipWidth + padding > viewportW) {
+      placement = rect.left - tooltipWidth - padding >= padding ? "left" : "bottom";
+    } else if (placement === "left" && rect.left - tooltipWidth - padding < padding) {
+      placement = rect.right + tooltipWidth + padding <= viewportW - padding ? "right" : "bottom";
+    }
+
+    if (placement === "bottom" && rect.bottom + tooltipHeight + padding > viewportH) {
+      placement = rect.top - tooltipHeight - padding >= padding ? "top" : "bottom";
+    } else if (placement === "top" && rect.top - tooltipHeight - padding < padding) {
+      placement = "bottom";
+    }
+
+    let top = 0;
+    let left = 0;
+
+    if (placement === "bottom") {
+      top = rect.bottom + padding;
+      left = rect.left + rect.width / 2 - tooltipWidth / 2;
+    } else if (placement === "top") {
+      top = rect.top - tooltipHeight - padding;
+      left = rect.left + rect.width / 2 - tooltipWidth / 2;
+    } else if (placement === "right") {
+      top = rect.top + rect.height / 2 - tooltipHeight / 2;
+      left = rect.right + padding;
+    } else if (placement === "left") {
+      top = rect.top + rect.height / 2 - tooltipHeight / 2;
+      left = rect.left - tooltipWidth - padding;
+    }
+
+    // Viewport clamping
+    left = Math.max(padding, Math.min(viewportW - tooltipWidth - padding, left));
+    top = Math.max(padding, Math.min(viewportH - tooltipHeight - padding, top));
+
+    setTooltipCoords({ top, left, placement });
+    return true;
+  }, [isOpen, currentStep]);
+
+  // Target element mounting & scroll-into-view
+  useEffect(() => {
+    if (!isOpen || !currentStep) return;
+
+    let attempts = 0;
+    const maxAttempts = 15;
+
+    const checkAndScroll = () => {
+      const found = updatePosition();
+      if (found) {
+        const el = document.querySelector(currentStep.selector);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+          // Recalculate once scrolling finishes
+          setTimeout(updatePosition, 180);
+        }
+      } else if (attempts < maxAttempts) {
+        attempts++;
+        setTimeout(checkAndScroll, 60);
+      }
+    };
+
+    checkAndScroll();
+
+    const handleResize = () => updatePosition();
+    const handleScroll = () => updatePosition();
+
+    window.addEventListener("resize", handleResize);
+    window.addEventListener("scroll", handleScroll, { capture: true, passive: true });
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      window.removeEventListener("scroll", handleScroll, true);
+    };
+  }, [isOpen, currentStepIndex, currentStep, updatePosition]);
+
+  if (!isOpen) return null;
 
   const handleNext = () => {
     if (isLast) {
@@ -291,117 +410,122 @@ export function AppTourModal({
   };
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={`${tourType === "member" ? "Member" : "Coach"} App Tour`}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink-primary/50 backdrop-blur-sm animate-in fade-in duration-200"
-    >
-      <div className="bg-surface rounded-xl border border-border shadow-2xl max-w-lg w-full overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
-        {/* Header Banner */}
-        <div className="bg-canvas border-b border-border px-5 py-3.5 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-md bg-brand-tint text-brand flex items-center justify-center font-bold text-xs">
-              <Compass className="w-4 h-4" />
-            </div>
-            <div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-semibold text-ink-primary">
-                  {tourType === "member" ? "Member App Tour" : "Coach Workspace Tour"}
-                </span>
-                <span className="text-[10px] text-ink-muted bg-surface-subtle px-1.5 py-0.5 rounded border border-border">
-                  Step {currentStepIndex + 1} of {steps.length}
-                </span>
-              </div>
-              <p className="text-[10px] text-brand font-medium">{currentStep.category}</p>
-            </div>
+    <>
+      {/* 1. Subtle, Non-blocking Target Highlight Ring (No background dim or blur, pointer-events-none) */}
+      {targetRect && (
+        <div
+          aria-hidden="true"
+          style={{
+            position: "fixed",
+            top: Math.max(0, targetRect.top - 4),
+            left: Math.max(0, targetRect.left - 4),
+            width: targetRect.width + 8,
+            height: targetRect.height + 8,
+            pointerEvents: "none",
+            zIndex: 40,
+          }}
+          className="rounded-lg ring-2 ring-brand ring-offset-2 ring-offset-canvas shadow-[0_0_16px_rgba(22,163,74,0.35)] transition-all duration-300 ease-out"
+        >
+          {/* Compact step badge marker attached to highlighted element */}
+          <div className="absolute -top-3 -right-2 bg-brand text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full shadow-sm flex items-center gap-0.5">
+            <span>{currentStepIndex + 1}</span>
+          </div>
+        </div>
+      )}
+
+      {/* 2. Non-blocking Contextual Tooltip Popover positioned directly next to feature */}
+      <div
+        ref={tooltipRef}
+        role="region"
+        aria-live="polite"
+        aria-label={`${tourType === "member" ? "Member" : "Coach"} Walkthrough Step ${currentStepIndex + 1}`}
+        style={{
+          position: "fixed",
+          top: tooltipCoords?.top ?? 80,
+          left: tooltipCoords?.left ?? 20,
+          zIndex: 50,
+          width: 320,
+          maxWidth: "calc(100vw - 24px)",
+        }}
+        className="bg-surface rounded-xl border border-border shadow-2xl p-4 text-ink-primary transition-all duration-200 animate-in fade-in zoom-in-95 select-none"
+      >
+        {/* Header: Badge, Step Indicator & Close */}
+        <div className="flex items-center justify-between pb-2 border-b border-border/80">
+          <div className="flex items-center gap-1.5">
+            <span className="w-5 h-5 rounded-md bg-brand-tint text-brand flex items-center justify-center font-bold text-[10px]">
+              <Compass className="w-3.5 h-3.5" />
+            </span>
+            <span className="text-[10px] font-semibold text-brand uppercase tracking-wider">
+              {currentStep.category}
+            </span>
           </div>
 
-          <button
-            type="button"
-            onClick={handleClose}
-            className="text-ink-muted hover:text-ink-primary p-1.5 rounded-md hover:bg-surface-subtle transition-colors"
-            aria-label="Close tour"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-medium text-ink-muted">
+              {currentStepIndex + 1} of {steps.length}
+            </span>
+            <button
+              type="button"
+              onClick={handleClose}
+              className="text-ink-muted hover:text-ink-primary hover:bg-surface-subtle p-1 rounded-md transition-colors"
+              aria-label="Close tour"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
 
-        {/* Progress Bar */}
-        <div className="w-full bg-surface-subtle h-1">
+        {/* Progress Bar Indicator */}
+        <div className="w-full bg-surface-subtle h-1 rounded-full overflow-hidden my-2">
           <div
-            className="bg-brand h-1 transition-all duration-300 ease-out"
+            className="bg-brand h-full transition-all duration-300 ease-out"
             style={{ width: `${progressPercent}%` }}
           />
         </div>
 
-        {/* Content Body */}
-        <div className="p-6 overflow-y-auto space-y-4 flex-1">
-          <div>
-            <h3 className="text-sm font-semibold text-ink-primary tracking-tight">
-              {currentStep.title}
-            </h3>
-            <p className="text-xs text-ink-secondary leading-relaxed mt-1.5">
-              {currentStep.description}
-            </p>
-          </div>
-
-          {/* Key Highlights */}
-          <div className="space-y-2 bg-surface-subtle p-3.5 rounded-lg border border-border">
-            <span className="text-[10px] text-ink-muted uppercase tracking-wider block font-semibold">
-              Key Capabilities:
-            </span>
-            <ul className="space-y-2 text-xs text-ink-primary">
-              {currentStep.keyPoints.map((point, idx) => (
-                <li key={idx} className="flex items-start gap-2">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-brand shrink-0 mt-0.5" />
-                  <span className="leading-snug text-[11px]">{point}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {/* Interface Tip */}
-          {currentStep.interfaceTip && (
-            <div className="flex items-center gap-2 text-[11px] text-ink-muted italic bg-brand-tint/40 px-3 py-2 rounded-md border border-[#D5E6D2]">
-              <Sparkles className="w-3.5 h-3.5 text-brand shrink-0" />
-              <span>{currentStep.interfaceTip}</span>
-            </div>
-          )}
+        {/* Step Title & Concise Description */}
+        <div className="space-y-1.5 my-2">
+          <h4 className="text-xs font-semibold text-ink-primary leading-snug">
+            {currentStep.title}
+          </h4>
+          <p className="text-[11px] text-ink-secondary leading-relaxed">
+            {currentStep.description}
+          </p>
         </div>
 
-        {/* Footer Navigation Controls */}
-        <div className="bg-canvas border-t border-border px-5 py-3.5 flex items-center justify-between gap-3">
+        {/* Controls: Skip, Back, Next / Finish */}
+        <div className="flex items-center justify-between pt-2.5 mt-2 border-t border-border/80">
           <button
             type="button"
             onClick={handleClose}
-            className="text-xs font-medium text-ink-muted hover:text-ink-primary transition-colors px-2 py-1"
+            className="text-[11px] text-ink-muted hover:text-ink-primary transition-colors font-medium px-1 py-1"
           >
-            Skip Tour
+            Skip tour
           </button>
 
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleBack}
-              disabled={isFirst}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium text-ink-primary bg-surface border border-border hover:bg-surface-subtle transition-colors disabled:opacity-40 disabled:cursor-not-allowed shadow-hairline"
-            >
-              <ArrowLeft className="w-3.5 h-3.5" />
-              <span>Back</span>
-            </button>
+          <div className="flex items-center gap-1.5">
+            {!isFirst && (
+              <button
+                type="button"
+                onClick={handleBack}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-medium text-ink-secondary hover:text-ink-primary hover:bg-surface-subtle border border-border transition-colors"
+              >
+                <ArrowLeft className="w-3 h-3" />
+                <span>Back</span>
+              </button>
+            )}
 
             <button
               type="button"
               onClick={handleNext}
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md text-xs font-semibold text-white bg-brand hover:bg-brand-hover transition-colors shadow-hairline"
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-[11px] font-semibold bg-brand text-white hover:bg-brand-hover shadow-hairline transition-colors"
             >
-              <span>{isLast ? "Finish Tour" : "Next"}</span>
-              {!isLast && <ArrowRight className="w-3.5 h-3.5" />}
+              <span>{isLast ? "Finish" : "Next"}</span>
+              {isLast ? <CheckCircle2 className="w-3 h-3" /> : <ArrowRight className="w-3 h-3" />}
             </button>
           </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }

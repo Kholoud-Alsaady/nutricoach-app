@@ -184,7 +184,7 @@ export function MemberProfileView() {
   return (
     <div className="space-y-6">
       {/* Profile Overview Card */}
-      <div className="bg-surface rounded-lg border border-border p-5 shadow-card space-y-4">
+      <div className="bg-surface rounded-lg border border-border p-5 shadow-card space-y-4" data-tour="member-profile-overview">
         <div className="flex items-center justify-between border-b border-border pb-4 flex-wrap gap-3">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-full bg-brand-tint text-brand flex items-center justify-center font-bold text-base">
@@ -245,7 +245,7 @@ export function MemberProfileView() {
       </div>
 
       {/* Editable Dietary Preferences & Meal Guardrails Section */}
-      <div className="bg-surface rounded-lg border border-border p-5 shadow-card space-y-5">
+      <div className="bg-surface rounded-lg border border-border p-5 shadow-card space-y-5" data-tour="member-dietary-guardrails">
         <div className="flex items-center justify-between border-b border-border pb-3 flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-md bg-brand-tint text-brand flex items-center justify-center">

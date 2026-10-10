@@ -204,7 +204,7 @@ export function ProgressView() {
   const cfg = getScenarioConfig();
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-tour="member-progress-content">
       {/* Top Progress Metrics */}
       <div className="grid grid-cols-4 gap-3">
         <div className="bg-surface rounded-lg border border-border p-3.5 shadow-hairline space-y-1">

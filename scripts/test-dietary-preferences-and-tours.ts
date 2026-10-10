@@ -184,7 +184,7 @@ async function runTestSuite() {
     'Coach tour explains Business Impact / Agent Operations'
   );
 
-  // Inspect AppTourModal code for Read-Only invariants
+  // Inspect AppTourModal code for Read-Only and Non-Blocking invariants
   const tourModalPath = path.resolve(__dirname, '../src/components/AppTourModal.tsx');
   const tourModalContent = fs.readFileSync(tourModalPath, 'utf8');
   assert(
@@ -193,6 +193,23 @@ async function runTestSuite() {
     !tourModalContent.includes('mutation') &&
     !tourModalContent.includes('/api/chat'),
     'AppTourModal contains NO network fetches, NO database mutations, and NO AI trigger calls'
+  );
+  assert(
+    !tourModalContent.includes('backdrop-blur') &&
+    !tourModalContent.includes('fixed inset-0 bg-'),
+    'AppTourModal contains NO backdrop blur and NO full-screen dimming overlay'
+  );
+  assert(
+    tourModalContent.includes('pointerEvents: "none"'),
+    'AppTourModal highlight ring uses pointerEvents: "none" to preserve background interaction'
+  );
+  assert(
+    MEMBER_TOUR_STEPS.every(s => typeof s.selector === 'string' && s.selector.includes('data-tour')),
+    'All Member tour steps specify dedicated [data-tour] selectors targeting real elements'
+  );
+  assert(
+    COACH_TOUR_STEPS.every(s => typeof s.selector === 'string' && s.selector.includes('data-tour')),
+    'All Coach tour steps specify dedicated [data-tour] selectors targeting real elements'
   );
   assert(
     tourModalContent.includes('onClose') &&

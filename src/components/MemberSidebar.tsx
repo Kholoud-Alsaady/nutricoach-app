@@ -49,6 +49,7 @@ export function MemberSidebar({ onOpenTour }: MemberSidebarProps) {
             return (
               <button
                 key={item.id}
+                data-tour={`member-${item.id}-nav`}
                 onClick={() => setActiveTab(item.id as any)}
                 className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${
                   isActive

@@ -312,7 +312,7 @@ export function MealsStream() {
                 </div>
 
                 {/* Slot Action Buttons */}
-                <div className="flex items-center gap-1.5 shrink-0">
+                <div className="flex items-center gap-1.5 shrink-0" data-tour="member-meal-log">
                   {!logged && planned && (
                     <>
                       <button
