@@ -165,14 +165,14 @@ export const CURATED_AUTHORITATIVE_SOURCES: CuratedBenchmark[] = [
 
   // --- NHS (National Health Service) ---
   {
-    title: "NHS: Sugar — The Facts on Free Sugars and Health",
+    title: "NHS: How does sugar in our diet affect our health?",
     url: "https://www.nhs.uk/live-well/eat-well/food-types/how-does-sugar-in-our-diet-affect-our-health/",
     sourceName: "National Health Service (NHS)",
     sourceType: "guideline",
     publishedDate: "2023",
     summary:
       "Official NHS clinical nutrition guidance clearly defining 'free sugars' (added sugars plus honey, syrups, unsweetened fruit juices) versus naturally occurring sugars in whole fruit, vegetables, and milk. Recommends adults consume no more than 30g of free sugars daily.",
-    keywords: ["nhs", "sugar", "free sugar", "added sugar", "naturally occurring sugar", "sugar-free", "sugar free", "sugar-free diet", "sugar free diet", "difference between added sugar", "benefits of reducing added sugar", "advantages of reducing sugar", "reducing sugar", "less added sugar", "eating less added sugar", "advantages", "tooth decay", "calories"],
+    keywords: ["nhs", "sugar", "free sugar", "added sugar", "naturally occurring sugar", "sugar-free", "sugar free", "sugar-free diet", "sugar free diet", "difference between added sugar", "benefits of reducing added sugar", "advantages of reducing sugar", "reducing sugar", "less added sugar", "eating less added sugar", "advantages", "how does sugar in our diet affect our health", "health effects of sugar", "tooth decay", "calories"],
   },
   {
     title: "NHS: How to Cut Down on Sugar in Your Diet",
@@ -622,7 +622,49 @@ export async function searchTrustedNutritionSources(userQuery: string): Promise<
   // Sort by score descending
   trustedOnly.sort((a, b) => b.score - a.score);
 
-  // Return top 2–4 trusted sources
-  return trustedOnly.slice(0, 4).map(({ score, ...rest }) => rest);
+  // Deduplicate by URL
+  const uniqueTrusted: ScoredCandidate[] = [];
+  const seenUrls = new Set<string>();
+  for (const c of trustedOnly) {
+    if (!seenUrls.has(c.url)) {
+      seenUrls.add(c.url);
+      uniqueTrusted.push(c);
+    }
+  }
+
+  // 4. ARTICLE SELECTION: Select exactly two preferred complementary sources
+  // Prioritizes direct relevance, scientific authority, and complementary usefulness
+  // (avoids two articles that repeat the exact same information from the same organization).
+  const selected: ScoredCandidate[] = [];
+  if (uniqueTrusted.length > 0) {
+    selected.push(uniqueTrusted[0]);
+
+    if (uniqueTrusted.length > 1) {
+      const getOrgKey = (name: string, url: string) => {
+        const n = name.toLowerCase();
+        if (n.includes("who") || n.includes("world health") || url.includes("who.int")) return "who";
+        if (n.includes("cdc") || url.includes("cdc.gov")) return "cdc";
+        if (n.includes("nhs") || url.includes("nhs.uk")) return "nhs";
+        if (n.includes("fao") || url.includes("fao.org")) return "fao";
+        if (n.includes("pubmed") || n.includes("nih") || url.includes("pubmed") || url.includes("nih.gov")) return "pubmed";
+        return name.toLowerCase().slice(0, 15);
+      };
+
+      const firstOrg = getOrgKey(uniqueTrusted[0].sourceName, uniqueTrusted[0].url);
+      const complementary = uniqueTrusted.slice(1).find((c) => {
+        const cOrg = getOrgKey(c.sourceName, c.url);
+        return cOrg !== firstOrg && c.score >= 35;
+      });
+
+      if (complementary) {
+        selected.push(complementary);
+      } else {
+        selected.push(uniqueTrusted[1]);
+      }
+    }
+  }
+
+  // Return exactly top 2 trusted sources (or 1 if only 1 is available)
+  return selected.slice(0, 2).map(({ score, ...rest }) => rest);
 }
 
