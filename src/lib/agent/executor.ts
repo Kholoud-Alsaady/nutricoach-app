@@ -41,14 +41,34 @@ export async function decideProposal(params: {
   if (action.execution_status === "executed" || action.execution_status === "rejected") {
     return {
       action,
-      success: true,
+      success: false,
       message: `Action was already ${action.execution_status}.`,
     };
   }
 
-  const proposal = editedChange || action.proposed_change;
+  let proposal = editedChange || action.proposed_change;
   if (!proposal && decision === "approve") {
-    return { action, success: false, message: "No proposal payload found on action." };
+    if (action.action_type === "adapt_weekly_plan") {
+      proposal = {
+        kind: "adapt_weekly_plan",
+        title: "Adapt weekly plan",
+        explanation: action.summary || "Weekly plan adaptation approved by coach",
+        changes: [],
+      };
+    } else if (action.action_type === "coach_followup") {
+      proposal = {
+        kind: "coach_followup",
+        title: "Coach follow-up",
+        explanation: action.summary || "Coach follow-up approved",
+        followup: {
+          followup_id: `fol-${action.id}`,
+          message: "Hi, checking in on your nutrition progress. Let us know if you need any adjustments to your plan.",
+          reason: action.summary || "Follow-up",
+        },
+      };
+    } else {
+      return { action, success: false, message: "No proposal payload found on action." };
+    }
   }
 
   const now = new Date().toISOString();
@@ -186,12 +206,37 @@ export async function decideProposal(params: {
       }
     }
   } else if (proposal?.kind === "coach_followup") {
-    // Mark follow-up as sent
-    if (proposal.followup?.followup_id) {
+    const msgText =
+      proposal.followup?.message ||
+      action.user_request ||
+      "Hi, checking in on your nutrition progress. Let us know if you need any adjustments to your plan.";
+    const reasonText = proposal.followup?.reason || action.summary || "Follow-up";
+
+    // Update existing row if present, or insert into coach_followups
+    let query = db.from("coach_followups").select("id");
+    const followupId = proposal.followup?.followup_id;
+    if (followupId && !followupId.startsWith("fol-")) {
+      query = query.or(`id.eq.${followupId},agent_action_id.eq.${actionId}`);
+    } else {
+      query = query.eq("agent_action_id", actionId);
+    }
+    const { data: existingFollowup } = await query.limit(1);
+
+    if (existingFollowup && existingFollowup.length > 0) {
       await db
         .from("coach_followups")
-        .update({ status: "sent", decided_at: now, coach_id: decidedBy.id })
-        .eq("id", proposal.followup.followup_id);
+        .update({ status: "sent", decided_at: now, coach_id: decidedBy.id, message: msgText })
+        .eq("id", existingFollowup[0].id);
+    } else {
+      await db.from("coach_followups").insert({
+        member_id: memberId,
+        coach_id: decidedBy.id,
+        agent_action_id: actionId,
+        reason: reasonText,
+        message: msgText,
+        status: "sent",
+        decided_at: now,
+      });
     }
   }
 

@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import {
   AlertCircle,
   ArrowLeft,
+  Check,
   CheckCircle2,
   Clock,
   Compass,
@@ -11,11 +12,14 @@ import {
   Flame,
   LayoutDashboard,
   LineChart,
+  Loader2,
   MessageSquare,
   Send,
   Sparkles,
   Users,
   Utensils,
+  X,
+  XCircle,
 } from "lucide-react";
 import { useNutriCoach } from "./NutriCoachContext";
 import { timeAgo } from "@/lib/dates";
@@ -29,6 +33,8 @@ export function CoachLayout() {
   const [coachInput, setCoachInput] = useState("");
   const [isTourOpen, setIsTourOpen] = useState(false);
   const [isWelcomeOpen, setIsWelcomeOpen] = useState(false);
+  const [processingActionId, setProcessingActionId] = useState<string | null>(null);
+  const [actionFeedback, setActionFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   // Check if first entry to Coach workspace
   React.useEffect(() => {
@@ -101,6 +107,53 @@ export function CoachLayout() {
     if (!coachInput.trim()) return;
     sendCoachReply(selectedMemberId, coachInput);
     setCoachInput("");
+  };
+
+  const handleApproveAction = async (actionId: string) => {
+    if (processingActionId) return;
+    setProcessingActionId(actionId);
+    setActionFeedback(null);
+    try {
+      const res = await approveProposal(actionId);
+      if (res && !res.success) {
+        setActionFeedback({ type: "error", message: res.error || "Failed to approve action." });
+      } else {
+        const act = state.actions.find((a) => a.id === actionId);
+        const member = state.members.find((m) => m.id === act?.member_id);
+        const memberName = member?.name || "Member";
+        const detail =
+          act?.action_type === "adapt_weekly_plan"
+            ? `High-protein weekly meal plan applied for ${memberName}.`
+            : act?.action_type === "coach_followup"
+            ? `Follow-up message sent to ${memberName}.`
+            : `Proposal approved and applied for ${memberName}.`;
+        setActionFeedback({ type: "success", message: `✓ ${detail}` });
+      }
+    } catch (err: any) {
+      setActionFeedback({ type: "error", message: err?.message || "An unexpected error occurred." });
+    } finally {
+      setProcessingActionId(null);
+    }
+  };
+
+  const handleRejectAction = async (actionId: string) => {
+    if (processingActionId) return;
+    setProcessingActionId(actionId);
+    setActionFeedback(null);
+    try {
+      const res = await rejectProposal(actionId, "Declined by coach");
+      if (res && !res.success) {
+        setActionFeedback({ type: "error", message: res.error || "Failed to reject action." });
+      } else {
+        const act = state.actions.find((a) => a.id === actionId);
+        const member = state.members.find((m) => m.id === act?.member_id);
+        setActionFeedback({ type: "success", message: `Proposal declined for ${member?.name || "Member"}.` });
+      }
+    } catch (err: any) {
+      setActionFeedback({ type: "error", message: err?.message || "An unexpected error occurred." });
+    } finally {
+      setProcessingActionId(null);
+    }
   };
 
   return (
@@ -532,7 +585,7 @@ export function CoachLayout() {
             </div>
           )}
 
-          {/* 4. AGENT ACTIVITY LOG TAB */}
+              {/* 4. AGENT ACTIVITY LOG TAB */}
           {coachTab === "audit" && (
             <div className="bg-surface rounded-lg border border-border shadow-card overflow-hidden" data-tour="coach-audit-panel">
               <div className="px-4 py-3 border-b border-border flex items-center justify-between">
@@ -544,6 +597,33 @@ export function CoachLayout() {
                   {state.actions.filter((a) => a.execution_status === "executed").length} executed actions
                 </span>
               </div>
+
+              {/* Feedback alert banner */}
+              {actionFeedback && (
+                <div
+                  className={`mx-4 mt-3 p-3 rounded-md text-xs flex items-center justify-between gap-2 border animate-in fade-in duration-200 ${
+                    actionFeedback.type === "success"
+                      ? "bg-brand-tint text-brand border-[#D5E6D2]"
+                      : "bg-[#FEF2F2] text-status-danger border-[#FCA5A5]"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    {actionFeedback.type === "success" ? (
+                      <CheckCircle2 className="w-4 h-4 shrink-0 text-brand" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 shrink-0 text-status-danger" />
+                    )}
+                    <span className="font-medium">{actionFeedback.message}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActionFeedback(null)}
+                    className="text-ink-muted hover:text-ink-primary p-0.5 rounded transition-colors"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
 
               <div className="divide-y divide-border">
                 {state.actions.map((act) => {
@@ -582,20 +662,34 @@ export function CoachLayout() {
                         {isPending ? (
                           <>
                             <button
-                              onClick={() => rejectProposal(act.id)}
-                              className="text-[11px] text-ink-secondary hover:text-ink-primary px-2 py-1 rounded border border-border"
+                              type="button"
+                              onClick={() => handleRejectAction(act.id)}
+                              disabled={processingActionId !== null}
+                              className="text-[11px] text-ink-secondary hover:text-ink-primary px-2.5 py-1 rounded border border-border hover:bg-surface-subtle transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
                             >
-                              Reject
+                              {processingActionId === act.id ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : null}
+                              <span>Reject</span>
                             </button>
                             <button
-                              onClick={() => approveProposal(act.id)}
-                              className="text-[11px] font-medium text-white bg-brand hover:bg-brand-hover px-2.5 py-1 rounded shadow-hairline"
+                              type="button"
+                              onClick={() => handleApproveAction(act.id)}
+                              disabled={processingActionId !== null}
+                              className="text-[11px] font-medium text-white bg-brand hover:bg-brand-hover px-3 py-1 rounded shadow-hairline transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
                             >
-                              Approve
+                              {processingActionId === act.id ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : null}
+                              <span>Approve</span>
                             </button>
                           </>
+                        ) : act.execution_status === "rejected" ? (
+                          <span className="text-[11px] text-ink-muted bg-surface-subtle px-2 py-0.5 rounded border border-border flex items-center gap-1 font-medium">
+                            <XCircle className="w-3.5 h-3.5" /> Declined
+                          </span>
                         ) : (
-                          <span className="text-[11px] text-brand font-medium flex items-center gap-1">
+                          <span className="text-[11px] text-brand font-medium flex items-center gap-1 bg-brand-tint/60 px-2 py-0.5 rounded border border-[#D5E6D2]">
                             <CheckCircle2 className="w-3.5 h-3.5" /> Executed
                           </span>
                         )}

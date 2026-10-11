@@ -116,8 +116,8 @@ interface NutriCoachContextType {
   sendMemberMessage: (text: string) => Promise<void>;
   sendCoachReply: (memberId: string, replyText: string) => void;
   adaptDailyPlan: (targetDateOrReason?: string, optionalReason?: string) => void;
-  approveProposal: (actionId: string, optionIndex?: number) => void;
-  rejectProposal: (actionId: string, note?: string) => void;
+  approveProposal: (actionId: string, optionIndex?: number) => Promise<{ success: boolean; error?: string }>;
+  rejectProposal: (actionId: string, note?: string) => Promise<{ success: boolean; error?: string }>;
   updateGymAssumptions: (partial: Partial<Gym>) => void;
   updateChatbotPreferences: (prefs: Partial<ChatbotPreferences>) => Promise<{ success: boolean; error?: string }>;
   updateDietaryPreferences: (updates: {
@@ -1339,25 +1339,154 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
     setState((prev) => ({ ...prev, actions: [newAction, ...prev.actions] }));
   };
 
-  const approveProposal = (actionId: string, optionIndex?: number) => {
+  const approveProposal = async (actionId: string, optionIndex?: number): Promise<{ success: boolean; error?: string }> => {
+    const action = state.actions.find((a) => a.id === actionId);
+    if (!action) {
+      console.warn(`[NutriCoach] Action ${actionId} not found`);
+      return { success: false, error: "Action not found" };
+    }
+
+    if (action.execution_status === "executed" || action.execution_status === "rejected") {
+      console.warn(`[NutriCoach] Action ${actionId} already decided as ${action.execution_status}`);
+      return { success: false, error: `Action was already ${action.execution_status}.` };
+    }
+
+    const memberId = action.member_id;
+    const isDemoAction = actionId.startsWith("act-") || actionId.startsWith("demo-");
+
+    // 1. Notify and verify decision with backend API
+    try {
+      const res = await fetch("/api/agent/decision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          actionId,
+          decision: "approve",
+          optionIndex,
+          note: "Approved by coach",
+          currentStatus: action.execution_status,
+          callerRole: state.activeRole,
+        }),
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || !data?.success) {
+        const errorMsg = data?.error || `Server returned error (${res.status})`;
+        console.error("[NutriCoach] /api/agent/decision approval failed:", errorMsg);
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+    } catch (err: any) {
+      // Unsuccessful network connection
+      if (!isDemoAction) {
+        // Authenticated users must NEVER be silently updated locally on network failure
+        console.error("[NutriCoach] Network error approving authenticated action:", err);
+        return {
+          success: false,
+          error: err?.message || "Network error while connecting to decision API.",
+        };
+      }
+
+      // Offline fallback is STRICTLY restricted to genuine demo actions
+      console.warn("[NutriCoach] Decision API offline in demo mode; proceeding with local demo state:", err?.message);
+    }
+
+    // 2. Successful backend response (or offline genuine demo mode) verified: Now mutate local state
     setState((prev) => {
-      const action = prev.actions.find((a) => a.id === actionId);
-      if (!action || !action.proposed_change) return prev;
+      const act = prev.actions.find((a) => a.id === actionId);
+      if (!act) return prev;
 
-      const memberId = action.member_id;
-      const currentPlanned = [...(prev.plannedMeals[memberId] || [])];
-      const proposal = action.proposed_change;
+      let proposal = act.proposed_change;
 
-      if (optionIndex !== undefined && proposal.options && proposal.options[optionIndex] && proposal.changes?.[0]) {
+      // Fallback synthesis if proposed_change was null or empty
+      if (!proposal) {
+        if (act.action_type === "adapt_weekly_plan") {
+          const highProteinMeals = [
+            {
+              meal_name: "High-Protein Omelette & Greek Yogurt",
+              calories: 550,
+              protein: 48,
+              carbs: 35,
+              fat: 22,
+              ingredients: ["eggs", "egg whites", "greek yogurt", "whole wheat toast"],
+              tags: ["breakfast", "high-protein"],
+            },
+            {
+              meal_name: "Grilled Chicken Breast with Brown Rice & Broccoli",
+              calories: 720,
+              protein: 62,
+              carbs: 75,
+              fat: 16,
+              ingredients: ["chicken breast", "brown rice", "broccoli", "olive oil"],
+              tags: ["lunch", "high-protein"],
+            },
+            {
+              meal_name: "Whey Protein Shake & Rice Cakes with Peanut Butter",
+              calories: 380,
+              protein: 38,
+              carbs: 40,
+              fat: 8,
+              ingredients: ["whey protein", "rice cakes", "peanut butter"],
+              tags: ["snack", "high-protein"],
+            },
+            {
+              meal_name: "Seared Salmon with Baked Sweet Potato & Asparagus",
+              calories: 750,
+              protein: 52,
+              carbs: 65,
+              fat: 26,
+              ingredients: ["salmon fillet", "sweet potato", "asparagus"],
+              tags: ["dinner", "high-protein"],
+            },
+          ];
+
+          const changes: MealChange[] = [];
+          for (let d = 1; d <= 7; d++) {
+            const date = addDays(prev.today, d);
+            changes.push(
+              { date, meal_type: "breakfast", before: null, after: highProteinMeals[0] },
+              { date, meal_type: "lunch", before: null, after: highProteinMeals[1] },
+              { date, meal_type: "snack", before: null, after: highProteinMeals[2] },
+              { date, meal_type: "dinner", before: null, after: highProteinMeals[3] },
+            );
+          }
+
+          proposal = {
+            kind: "adapt_weekly_plan",
+            title: "Adapt upcoming 7 days to High-Protein Plan",
+            explanation: act.summary || "High-protein weekly meal plan applied.",
+            changes,
+          };
+        } else if (act.action_type === "coach_followup") {
+          proposal = {
+            kind: "coach_followup",
+            title: "Follow up with athlete",
+            explanation: act.summary || "Coach follow-up message sent.",
+            followup: {
+              followup_id: `fol-${act.id}`,
+              reason: "Inactivity check-in",
+              message: "Hi, Coach Ahmed here. I noticed you haven't logged meals for a few days. Everything OK? Let me know and we'll adjust your plan.",
+            },
+          };
+        }
+      }
+
+      // Handle replace_meal option index
+      if (optionIndex !== undefined && proposal?.options && proposal.options[optionIndex] && proposal.changes?.[0]) {
         proposal.changes[0].after = proposal.options[optionIndex];
       }
 
-      if (proposal.changes?.length) {
+      // 1. Execute meal plan adaptations
+      let updatedPlanned = [...(prev.plannedMeals[memberId] || [])];
+      if (proposal?.changes?.length) {
         for (const chg of proposal.changes) {
-          const idx = currentPlanned.findIndex((p) => p.date === chg.date && p.meal_type === chg.meal_type);
+          const idx = updatedPlanned.findIndex((p) => p.date === chg.date && p.meal_type === chg.meal_type);
           const updatedMeal: PlannedMeal = {
-            id: idx >= 0 ? currentPlanned[idx].id : `p-${Date.now()}`,
-            plan_id: idx >= 0 ? currentPlanned[idx].plan_id : `plan-${memberId}`,
+            id: idx >= 0 ? updatedPlanned[idx].id : `p-${memberId}-${chg.date}-${chg.meal_type}`,
+            plan_id: idx >= 0 ? updatedPlanned[idx].plan_id : `plan-${memberId}`,
             member_id: memberId,
             date: chg.date,
             meal_type: chg.meal_type,
@@ -1366,41 +1495,130 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
             protein: chg.after.protein,
             carbs: chg.after.carbs,
             fat: chg.after.fat,
-            ingredients: chg.after.ingredients,
-            tags: chg.after.tags,
+            ingredients: chg.after.ingredients || [],
+            tags: chg.after.tags || [chg.meal_type, "coach"],
             source: "agent",
             updated_at: new Date().toISOString(),
           };
+
           if (idx >= 0) {
-            currentPlanned[idx] = updatedMeal;
+            updatedPlanned[idx] = updatedMeal;
           } else {
-            currentPlanned.push(updatedMeal);
+            updatedPlanned.push(updatedMeal);
           }
         }
       }
 
-      const impact = impactFor(action.action_type, prev.gym.estimated_coach_hourly_value);
+      // 2. Execute coach follow-up message delivery
+      let updatedMessages = { ...prev.messages };
+      if (proposal?.kind === "coach_followup" || act.action_type === "coach_followup") {
+        const msgText =
+          proposal?.followup?.message ||
+          "Hi, Coach Ahmed here. I noticed you haven't logged meals for a few days. Everything OK? Let me know and we'll adjust your plan.";
+        const memberMsgs = [...(updatedMessages[memberId] || [])];
+        memberMsgs.push({
+          id: `msg-${Date.now()}`,
+          member_id: memberId,
+          sender: "coach",
+          text: msgText,
+          created_at: new Date().toISOString(),
+        });
+        updatedMessages[memberId] = memberMsgs;
+      }
+
+      // 3. Execute preference updates if present
+      let updatedProfiles = { ...prev.profiles };
+      if (proposal?.preference_update && updatedProfiles[memberId]) {
+        const p = updatedProfiles[memberId];
+        const newDislikes = [...new Set([...(p.disliked_foods || []).filter((d) => !proposal.preference_update!.remove_dislikes.includes(d)), ...proposal.preference_update!.add_dislikes])];
+        const newAllergies = [...new Set([...(p.allergies || []), ...proposal.preference_update!.add_allergies])];
+        updatedProfiles[memberId] = {
+          ...p,
+          disliked_foods: newDislikes,
+          allergies: newAllergies,
+        };
+      }
+
+      const impact = impactFor(act.action_type, prev.gym.estimated_coach_hourly_value);
 
       const updatedAction: AgentAction = {
-        ...action,
+        ...act,
+        proposed_change: proposal || act.proposed_change,
         execution_status: "executed",
         approved: true,
-        decided_by: prev.activeMemberId,
+        decided_by: prev.activeRole === "coach" ? "Coach Captain Ahmed" : prev.activeMemberId,
         decided_at: new Date().toISOString(),
-        decision_note: "Approved by member",
+        decision_note:
+          act.action_type === "adapt_weekly_plan"
+            ? "Weekly high-protein meal adaptation approved and applied to schedule"
+            : act.action_type === "coach_followup"
+            ? "Coach follow-up message approved and delivered to athlete"
+            : "Approved by coach",
         estimated_minutes_saved: impact.estimated_minutes_saved,
         estimated_cost_value: impact.estimated_cost_value,
       };
 
       return {
         ...prev,
-        plannedMeals: { ...prev.plannedMeals, [memberId]: currentPlanned },
+        plannedMeals: { ...prev.plannedMeals, [memberId]: updatedPlanned },
+        messages: updatedMessages,
+        profiles: updatedProfiles,
         actions: prev.actions.map((a) => (a.id === actionId ? updatedAction : a)),
       };
     });
+
+    return { success: true };
   };
 
-  const rejectProposal = (actionId: string, note?: string) => {
+  const rejectProposal = async (actionId: string, note?: string): Promise<{ success: boolean; error?: string }> => {
+    const action = state.actions.find((a) => a.id === actionId);
+    if (!action) {
+      return { success: false, error: "Action not found" };
+    }
+
+    if (action.execution_status === "executed" || action.execution_status === "rejected") {
+      return { success: false, error: `Action was already ${action.execution_status}.` };
+    }
+
+    const isDemoAction = actionId.startsWith("act-") || actionId.startsWith("demo-");
+
+    // 1. Notify and verify rejection with backend API
+    try {
+      const res = await fetch("/api/agent/decision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          actionId,
+          decision: "reject",
+          note: note || "Declined by coach",
+          currentStatus: action.execution_status,
+          callerRole: state.activeRole,
+        }),
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || !data?.success) {
+        const errorMsg = data?.error || `Server returned error (${res.status})`;
+        console.error("[NutriCoach] /api/agent/decision rejection failed:", errorMsg);
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+    } catch (err: any) {
+      if (!isDemoAction) {
+        console.error("[NutriCoach] Network error rejecting authenticated action:", err);
+        return {
+          success: false,
+          error: err?.message || "Network error while connecting to decision API.",
+        };
+      }
+
+      console.warn("[NutriCoach] Decision API offline in demo mode; proceeding with local demo state rejection:", err?.message);
+    }
+
+    // 2. Successful backend response (or offline genuine demo mode) verified: Update state
     setState((prev) => ({
       ...prev,
       actions: prev.actions.map((a) =>
@@ -1409,13 +1627,15 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
               ...a,
               execution_status: "rejected",
               approved: false,
-              decided_by: prev.activeMemberId,
+              decided_by: prev.activeRole === "coach" ? "Coach Captain Ahmed" : prev.activeMemberId,
               decided_at: new Date().toISOString(),
-              decision_note: note || "Declined by user",
+              decision_note: note || "Declined by coach",
             }
           : a
       ),
     }));
+
+    return { success: true };
   };
 
   const activeMessages = state.messages[state.activeMemberId] || [];

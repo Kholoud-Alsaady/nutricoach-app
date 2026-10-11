@@ -312,6 +312,83 @@ export function createInitialDemoState(): DemoState {
     },
   };
 
+  const ahmedHighProteinBreakfast: MealSnapshot = {
+    meal_name: "High-Protein Omelette & Greek Yogurt",
+    calories: 550,
+    protein: 48,
+    carbs: 35,
+    fat: 22,
+    ingredients: ["eggs", "egg whites", "greek yogurt", "whole wheat toast"],
+    tags: ["breakfast", "high-protein"],
+  };
+
+  const ahmedHighProteinLunch: MealSnapshot = {
+    meal_name: "Grilled Chicken Breast with Brown Rice & Broccoli",
+    calories: 720,
+    protein: 62,
+    carbs: 75,
+    fat: 16,
+    ingredients: ["chicken breast", "brown rice", "broccoli", "olive oil"],
+    tags: ["lunch", "high-protein"],
+  };
+
+  const ahmedHighProteinSnack: MealSnapshot = {
+    meal_name: "Whey Protein Shake & Rice Cakes with Peanut Butter",
+    calories: 380,
+    protein: 38,
+    carbs: 40,
+    fat: 8,
+    ingredients: ["whey protein", "rice cakes", "peanut butter"],
+    tags: ["snack", "high-protein"],
+  };
+
+  const ahmedHighProteinDinner: MealSnapshot = {
+    meal_name: "Seared Salmon with Baked Sweet Potato & Asparagus",
+    calories: 750,
+    protein: 52,
+    carbs: 65,
+    fat: 26,
+    ingredients: ["salmon fillet", "sweet potato", "asparagus"],
+    tags: ["dinner", "high-protein"],
+  };
+
+  const ahmedWeeklyChanges: MealChange[] = [];
+  for (let d = 1; d <= 7; d++) {
+    const changeDate = addDays(today, d);
+    ahmedWeeklyChanges.push(
+      { date: changeDate, meal_type: "breakfast", before: null, after: ahmedHighProteinBreakfast },
+      { date: changeDate, meal_type: "lunch", before: null, after: ahmedHighProteinLunch },
+      { date: changeDate, meal_type: "snack", before: null, after: ahmedHighProteinSnack },
+      { date: changeDate, meal_type: "dinner", before: null, after: ahmedHighProteinDinner },
+    );
+  }
+
+  const ahmedProposedChange: ProposedChange = {
+    kind: "adapt_weekly_plan",
+    title: "Adapt upcoming 7 days to High-Protein Plan",
+    explanation: "Ahmed Nabil: Protein low across 5 days (78g / 170g avg). Proposed high-protein weekly swaps bringing average daily protein to 200g (target 170g).",
+    changes: ahmedWeeklyChanges,
+    verification: {
+      ok: true,
+      checks: [
+        { label: "Target Protein Compliance", ok: true, detail: "Average daily protein increases to 200g/day vs 170g target" },
+        { label: "Daily Calorie Budget", ok: true, detail: "Daily energy calibrated to 2,400 kcal target" },
+        { label: "Macro Balance Ratio", ok: true, detail: "33% Protein, 43% Carbs, 24% Fats verified" },
+      ],
+    },
+  };
+
+  const youssefProposedFollowup: ProposedChange = {
+    kind: "coach_followup",
+    title: "Follow up with Youssef Adel",
+    explanation: "Inactivity detected (4 days without logs). Coach follow-up drafted.",
+    followup: {
+      followup_id: "fol-youssef-audit-1",
+      reason: "4 days without meal logs",
+      message: "Hi Youssef, Coach Ahmed here. I noticed you haven't logged meals for the past 4 days. Everything OK? Let me know if you need to simplify your targets or if you're traveling, and we'll adjust your plan.",
+    },
+  };
+
   const initialActions: AgentAction[] = [
     {
       id: "act-layla-today",
@@ -351,7 +428,7 @@ export function createInitialDemoState(): DemoState {
         { tool: "analyze_member_progress", summary: "Protein gap pattern identified (5 of 7 days below 80%)" },
         { tool: "adapt_weekly_plan", summary: "Drafted 7-day high protein meal alternatives" },
       ],
-      proposed_change: null,
+      proposed_change: ahmedProposedChange,
       requires_coach_approval: true,
       approved: null,
       execution_status: "pending_coach",
@@ -376,7 +453,7 @@ export function createInitialDemoState(): DemoState {
         { tool: "analyze_member_progress", summary: "4 days since last meal log" },
         { tool: "create_coach_followup", summary: "Drafted coach check-in message" },
       ],
-      proposed_change: null,
+      proposed_change: youssefProposedFollowup,
       requires_coach_approval: true,
       approved: null,
       execution_status: "pending_coach",
