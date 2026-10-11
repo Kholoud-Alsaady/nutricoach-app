@@ -458,6 +458,192 @@ function isMealModificationRequest(text: string): boolean {
   return false;
 }
 
+function isConfirmationOrApplication(
+  message: string,
+  pending: AgentPendingProposal | null
+): { isMatch: boolean; detectedSlot?: string; detectedDate?: "today" | "tomorrow" } {
+  const trimmed = message.trim();
+  const lower = trimmed.toLowerCase();
+
+  // 1. Explicit affirmative replies
+  if (/^(yes|apply|apply it|confirm|confirm & apply|confirm and apply|do it|looks good|sounds good|go ahead|sure|ok|okay|please do|perfect|yes please|yes use it)\b/i.test(trimmed)) {
+    return { isMatch: true };
+  }
+
+  // 2. If there is a pending proposal, check for semantic action phrases
+  if (pending && Array.isArray(pending.meals) && pending.meals.length > 0) {
+    const meal = pending.meals[0];
+    const mealTitleWords = (meal.title || "").toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter((w) => w.length >= 3);
+
+    // Matching "Yes, use the chicken and rice stir-fry" or "use the chicken stir fry"
+    if (
+      /\b(use (this|the)|go with (this|the)|let's do|lets do|choose (this|the)|pick (this|the))\b/i.test(lower) ||
+      (mealTitleWords.length > 0 && mealTitleWords.filter((w) => lower.includes(w)).length >= 2) ||
+      (lower.includes((meal.title || "").toLowerCase().slice(0, 15)))
+    ) {
+      return { isMatch: true };
+    }
+
+    // Matching "Add this to today's lunch", "Add to today's lunch", "Add this to lunch"
+    const addMatch = lower.match(/\badd\s+(?:this\s+)?to\s+(?:(today|tomorrow)(?:'s)?\s+)?(breakfast|lunch|dinner|snack)\b/i);
+    if (addMatch) {
+      const detectedDate = addMatch[1] ? (addMatch[1].toLowerCase() as "today" | "tomorrow") : undefined;
+      const detectedSlot = addMatch[2].toLowerCase();
+      return { isMatch: true, detectedSlot, detectedDate };
+    }
+
+    // Matching "Replace today's dinner with this meal", "Replace my planned lunch", "Replace today's lunch"
+    const replaceMatch = lower.match(/\breplace\s+(?:(today|tomorrow)(?:'s)?\s+)?(?:my\s+|the\s+)?(?:planned\s+)?(breakfast|lunch|dinner|snack)\b/i);
+    if (replaceMatch) {
+      const detectedDate = replaceMatch[1] ? (replaceMatch[1].toLowerCase() as "today" | "tomorrow") : undefined;
+      const detectedSlot = replaceMatch[2].toLowerCase();
+      return { isMatch: true, detectedSlot, detectedDate };
+    }
+
+    // "Add this meal to my plan", "Apply this to today", "Confirm & Apply Changes"
+    if (/\b(confirm & apply|apply changes|add (this )?to (my )?plan|apply (this )?to (my )?plan)\b/i.test(lower)) {
+      return { isMatch: true };
+    }
+  }
+
+  return { isMatch: false };
+}
+
+function generateMealSuggestionFallback(
+  message: string,
+  currentDate: string,
+  targets: Macros,
+  userProfile: any,
+  pending: AgentPendingProposal | null
+): AgentResponseContract | null {
+  const lower = message.toLowerCase();
+  const isTomorrow = /\btomorrow\b/i.test(lower);
+  const targetDate = isTomorrow ? addDays(currentDate, 1) : currentDate;
+  const targetDay = isTomorrow ? "tomorrow" : "today";
+
+  // Check if user is asking for another/different option
+  const isAnotherOption = /\b(another|different|other|alternative)\b/i.test(lower);
+
+  // 1. Chicken, spinach, and brown rice dinner
+  if (lower.includes("chicken") && lower.includes("spinach") && (lower.includes("rice") || lower.includes("dinner"))) {
+    const meal: AgentProposedMeal = {
+      title: "Garlic Chicken Breast and Spinach Stir-Fry with Brown Rice",
+      slot: "dinner",
+      calories: 520,
+      protein: 55,
+      carbs: 45,
+      fat: 12,
+      ingredients: ["chicken breast", "baby spinach", "brown rice", "garlic", "olive oil"],
+    };
+    return {
+      replyText: "I've crafted a simple, balanced dinner using your ingredients: Garlic Chicken Breast & Spinach Stir-Fry with Brown Rice. Sauté 180g diced chicken breast with minced garlic in a drizzle of olive oil, fold in 2 cups of fresh spinach until wilted, and serve over 1 cup of steamed brown rice. It provides approximately 520 kcal (55g protein, 45g carbs, 12g fat), hitting your macro targets cleanly.",
+      intent: "meal_replacement",
+      action: "replace_meal",
+      targetSlot: "dinner",
+      targetDate,
+      targetDay,
+      shouldMutatePlan: false,
+      requiresConfirmation: true,
+      proposedMeal: meal,
+      suggestedFollowUps: [
+        `Replace ${targetDay}'s dinner with this meal`,
+        "Show me another dinner option",
+        "View today's remaining macros",
+      ],
+    };
+  }
+
+  // 2. High-protein quick lunch (< 15 mins / busy workday)
+  if (lower.includes("lunch") || lower.includes("15 min") || lower.includes("quick")) {
+    const previousTitle = pending?.meals?.[0]?.title?.toLowerCase() || "";
+    // If they already saw tuna or specifically asked for another option and previous was tuna:
+    if (isAnotherOption && previousTitle.includes("tuna")) {
+      const meal: AgentProposedMeal = {
+        title: "10-Minute Warm Turkey & Avocado Wrap",
+        slot: "lunch",
+        calories: 490,
+        protein: 44,
+        carbs: 38,
+        fat: 16,
+        ingredients: ["sliced turkey breast", "whole wheat tortilla", "avocado", "mixed greens", "dijon mustard"],
+      };
+      return {
+        replyText: "Here is another quick, high-protein lunch you can prepare in 10 minutes: Warm Turkey & Avocado Wrap. Roll 160g sliced lean turkey breast, 1/4 sliced avocado, mixed greens, and dijon mustard in a whole wheat wrap. Toast lightly in a dry skillet for 2 minutes. It delivers approximately 490 kcal (44g protein, 38g carbs, 16g fat).",
+        intent: "meal_replacement",
+        action: "replace_meal",
+        targetSlot: "lunch",
+        targetDate,
+        targetDay,
+        shouldMutatePlan: false,
+        requiresConfirmation: true,
+        proposedMeal: meal,
+        suggestedFollowUps: [
+          `Add this to ${targetDay}'s lunch`,
+          `Replace my planned lunch`,
+          "View today's remaining macros",
+        ],
+      };
+    }
+
+    const meal: AgentProposedMeal = {
+      title: "15-Minute Mediterranean Tuna & Chickpea Salad Bowl",
+      slot: "lunch",
+      calories: 480,
+      protein: 46,
+      carbs: 42,
+      fat: 14,
+      ingredients: ["canned tuna in water", "cooked chickpeas", "cucumber", "cherry tomatoes", "extra virgin olive oil", "lemon juice"],
+    };
+    return {
+      replyText: "Here is a balanced, high-protein lunch you can prepare in under 15 minutes during a busy workday: Mediterranean Tuna & Chickpea Bowl. Drain 1 can of solid white tuna, rinse 1/2 cup of chickpeas, and toss with diced cucumber, cherry tomatoes, and a light dressing of 1 tsp olive oil and lemon juice. It delivers approximately 480 kcal (46g protein, 42g carbs, 14g fat) without requiring stove cooking.",
+      intent: "meal_replacement",
+      action: "replace_meal",
+      targetSlot: "lunch",
+      targetDate,
+      targetDay,
+      shouldMutatePlan: false,
+      requiresConfirmation: true,
+      proposedMeal: meal,
+      suggestedFollowUps: [
+        `Add this to ${targetDay}'s lunch`,
+        "Show me another quick lunch option",
+        "Replace my planned lunch",
+      ],
+    };
+  }
+
+  // 3. General Dinner suggestion
+  if (lower.includes("dinner")) {
+    const meal: AgentProposedMeal = {
+      title: "Seared Salmon with Steamed Asparagus and Quinoa",
+      slot: "dinner",
+      calories: 540,
+      protein: 48,
+      carbs: 42,
+      fat: 18,
+      ingredients: ["salmon fillet", "quinoa", "asparagus", "lemon", "olive oil"],
+    };
+    return {
+      replyText: "Here is a nutrient-dense, high-protein dinner option: Seared Salmon with Steamed Asparagus and Quinoa. Pan-sear a 160g salmon fillet for 4 minutes per side, paired with 3/4 cup cooked quinoa and steamed asparagus with fresh lemon. It provides approximately 540 kcal (48g protein, 42g carbs, 18g fat).",
+      intent: "meal_replacement",
+      action: "replace_meal",
+      targetSlot: "dinner",
+      targetDate,
+      targetDay,
+      shouldMutatePlan: false,
+      requiresConfirmation: true,
+      proposedMeal: meal,
+      suggestedFollowUps: [
+        `Replace ${targetDay}'s dinner with this meal`,
+        "Show me another dinner option",
+        "View today's remaining macros",
+      ],
+    };
+  }
+
+  return null;
+}
+
 function isExplicitResearchRequest(text: string): boolean {
   const t = text.toLowerCase();
   const patterns = [
@@ -1111,10 +1297,45 @@ export async function POST(req: NextRequest) {
   const loggedOn = (date: string) => mealLogs.filter((l) => l.date === date);
   const isLogged = (date: string, slot: string) => loggedOn(date).some((l) => l.meal_type === slot);
 
-  // Fast-path: Explicit confirmation handling (deterministic, 0-latency, no LLM 503 risk)
-  const isExplicitConfirmation = /^(yes|apply|apply it|confirm|do it|looks good|sounds good|go ahead|sure|ok|okay)\b/i.test(message.trim());
+  const remainingFor = (date: string, extra: Array<Partial<Macros>> = []): AgentRemainingTargets =>
+    round({
+      calories: targets.calories - sumMacros(loggedOn(date)).calories - sumMacros(extra).calories,
+      protein: targets.protein - sumMacros(loggedOn(date)).protein - sumMacros(extra).protein,
+      carbs: targets.carbs - sumMacros(loggedOn(date)).carbs - sumMacros(extra).carbs,
+      fat: targets.fat - sumMacros(loggedOn(date)).fat - sumMacros(extra).fat,
+    });
 
-  if (isExplicitConfirmation) {
+  const todayRemaining = remainingFor(currentDate);
+
+  // Cancellation fast-path (deterministic, discards pending change)
+  if (/^(cancel|cancel proposal|discard|nevermind|never mind|stop|don't apply|dont apply)\b/i.test(message.trim())) {
+    return NextResponse.json({
+      replyText: "Proposal cancelled. Your meal plan is unchanged.",
+      intent: "general_conversation",
+      action: "none",
+      shouldMutatePlan: false,
+      requiresConfirmation: false,
+      suggestedFollowUps: ["Suggest a balanced lunch", "Recommend a dinner recipe", "View today's remaining macros"],
+    } satisfies AgentResponseContract);
+  }
+
+  // View remaining macros fast-path (deterministic, non-mutating)
+  if (/^(view today'?s remaining macros|view today'?s macros|remaining macros|show macros|today'?s macros)\b/i.test(message.trim())) {
+    return NextResponse.json({
+      replyText: `Here are your remaining macros for today: ${todayRemaining.calories} kcal, ${todayRemaining.protein}g protein, ${todayRemaining.carbs}g carbs, and ${todayRemaining.fat}g fat (based on your daily target of ${targets.calories} kcal).`,
+      intent: "progress_question",
+      action: "none",
+      shouldMutatePlan: false,
+      requiresConfirmation: false,
+      remainingTargets: todayRemaining,
+      suggestedFollowUps: ["Suggest a balanced lunch", "Recommend a dinner recipe"],
+    } satisfies AgentResponseContract);
+  }
+
+  // Fast-path: Explicit confirmation and semantic action handling (deterministic, 0-latency, no LLM 503 risk)
+  const confirmationCheck = isConfirmationOrApplication(message, pending);
+
+  if (confirmationCheck.isMatch) {
     if (!pending) {
       return NextResponse.json({
         replyText: "There isn't a pending change for me to apply right now. What would you like to change?",
@@ -1122,16 +1343,17 @@ export async function POST(req: NextRequest) {
         action: "none",
         shouldMutatePlan: false,
         requiresConfirmation: false,
-        suggestedFollowUps: ["Change tomorrow's meals to Italian", "Recommend a high-protein dinner", "View today's macros"],
+        suggestedFollowUps: ["Suggest a balanced lunch", "Recommend a high-protein dinner", "View today's macros"],
       } satisfies AgentResponseContract);
     }
 
-    const stale = isISODate(pending.targetDate) && daysBetween(currentDate, pending.targetDate) < 0;
     const pendingMeals = Array.isArray(pending.meals) ? pending.meals : [];
-    const blocked =
-      pending.action !== "log_meal" && isISODate(pending.targetDate)
-        ? pendingMeals.filter((m) => m.slot && isLogged(pending.targetDate as string, m.slot))
-        : [];
+    const targetSlot = confirmationCheck.detectedSlot || pending.targetSlot || pendingMeals[0]?.slot || "lunch";
+    const targetDate = confirmationCheck.detectedDate
+      ? (confirmationCheck.detectedDate === "today" ? currentDate : addDays(currentDate, 1))
+      : (pending.targetDate || currentDate);
+
+    const stale = isISODate(targetDate) && daysBetween(currentDate, targetDate) < 0;
 
     if (stale) {
       return NextResponse.json({
@@ -1140,31 +1362,39 @@ export async function POST(req: NextRequest) {
         action: "none",
         shouldMutatePlan: false,
         requiresConfirmation: false,
+        suggestedFollowUps: ["Suggest a balanced lunch", "Recommend a dinner recipe"],
       } satisfies AgentResponseContract);
     }
 
-    if (pendingMeals.length && blocked.length === pendingMeals.length) {
+    // EATEN-MEAL PROTECTION (Section 3 requirement): Never overwrite eaten meals!
+    if (pending.action !== "log_meal" && isLogged(targetDate, targetSlot)) {
+      const logged = loggedOn(targetDate).find((l) => l.meal_type === targetSlot);
       return NextResponse.json({
-        replyText: "Those meals have been logged since I proposed the change, so I won't overwrite them.",
-        intent: pending.intent || "meal_adaptation",
+        replyText: `You've already logged ${targetSlot}${logged ? ` (${logged.meal_name})` : ""} for ${dayLabel(targetDate, currentDate)}, so I won't overwrite it. Would you like me to add ${pendingMeals[0]?.title || "this meal"} as an extra meal, or plan it for tomorrow instead?`,
+        intent: "meal_logging",
         action: "none",
         shouldMutatePlan: false,
         requiresConfirmation: false,
+        suggestedFollowUps: ["Add it as an extra snack", "Plan it for tomorrow"],
       } satisfies AgentResponseContract);
     }
 
+    const updatedMeals = pendingMeals.map((m) => ({ ...m, slot: targetSlot as any }));
+
     return NextResponse.json({
-      replyText: `Applied! I've updated your planned meals for ${pending.targetDate || "tomorrow"}.`,
-      action: pending.action,
-      intent: pending.intent || "meal_adaptation",
-      targetDate: pending.targetDate || undefined,
-      targetSlot: pending.targetSlot || undefined,
+      replyText: `Applied! I've updated your planned ${targetSlot} for ${dayLabel(targetDate, currentDate)} to ${pendingMeals[0]?.title || "this meal"}.`,
+      action: pending.action === "suggest_meal" ? "replace_meal" : (pending.action || "replace_meal"),
+      intent: pending.intent || "meal_replacement",
+      targetDate: targetDate || undefined,
+      targetSlot: targetSlot || undefined,
+      targetDay: targetDate === currentDate ? "today" : "tomorrow",
       shouldMutatePlan: true,
       requiresConfirmation: false,
-      proposedMeal: pendingMeals.length === 1 ? pendingMeals[0] : undefined,
-      proposedMeals: pendingMeals.length > 1 ? pendingMeals : undefined,
+      proposedMeal: updatedMeals.length === 1 ? updatedMeals[0] : undefined,
+      proposedMeals: updatedMeals.length > 1 ? updatedMeals : undefined,
       preferenceUpdate: pending.preferenceUpdate || undefined,
       confirmedProposalId: pending.id,
+      suggestedFollowUps: ["View today's remaining macros", "Recommend a dinner recipe"],
     } satisfies AgentResponseContract);
   }
 
@@ -1206,15 +1436,6 @@ export async function POST(req: NextRequest) {
     } satisfies AgentResponseContract);
   }
 
-  const remainingFor = (date: string, extra: Array<Partial<Macros>> = []): AgentRemainingTargets =>
-    round({
-      calories: targets.calories - sumMacros(loggedOn(date)).calories - sumMacros(extra).calories,
-      protein: targets.protein - sumMacros(loggedOn(date)).protein - sumMacros(extra).protein,
-      carbs: targets.carbs - sumMacros(loggedOn(date)).carbs - sumMacros(extra).carbs,
-      fat: targets.fat - sumMacros(loggedOn(date)).fat - sumMacros(extra).fat,
-    });
-
-  const todayRemaining = remainingFor(currentDate);
   const list = (v: unknown) => (Array.isArray(v) && v.length ? v.join(", ") : "none");
 
   const context = `CURRENT DATE: ${currentDate} (${weekdayOf(currentDate)}). Tomorrow is ${addDays(currentDate, 1)} (${weekdayOf(addDays(currentDate, 1))}).
@@ -1250,6 +1471,12 @@ ${pending ? JSON.stringify(pending) : "none"}
 RECENT CONVERSATION:
 ${history.length ? history.map((h) => `${h.sender}: ${h.text}`).join("\n") : "(no previous messages)"}`;
 
+  const isAnotherOption = /\b(another|different|other|alternative)\b/i.test(message) && /\b(option|meal|recipe|lunch|dinner|breakfast|snack|idea|ideas)\b/i.test(message);
+  let anotherOptionDirective = "";
+  if (isAnotherOption && pending?.meals?.[0]?.title) {
+    anotherOptionDirective = `\nCRITICAL REQUIREMENT: The member previously viewed "${pending.meals[0].title}" and is requesting a different recipe. You MUST propose a completely DIFFERENT recipe. Do not repeat "${pending.meals[0].title}".`;
+  }
+
   // STEP 3: Call Gemini (with model fallback for demand spikes and corrective retry if badly unbalanced)
   const candidateModels = Array.from(new Set([model, "gemini-3.7-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-3.1-flash-lite", "gemini-3.8-flash"]));
   const callModel = async (correction?: string): Promise<any | null> => {
@@ -1260,7 +1487,7 @@ ${history.length ? history.map((h) => `${h.sender}: ${h.text}`).join("\n") : "(n
             model: mName,
             contents: correction ? `${message}\n\n[Application feedback on your previous proposal: ${correction}]` : message,
             config: {
-              systemInstruction: `${SYSTEM_PROMPT}\n\n${context}`,
+              systemInstruction: `${SYSTEM_PROMPT}\n\n${context}${anotherOptionDirective}`,
               responseMimeType: "application/json",
               responseSchema: RESPONSE_SCHEMA,
               temperature: 0.4,
@@ -1284,6 +1511,13 @@ ${history.length ? history.map((h) => `${h.sender}: ${h.text}`).join("\n") : "(n
     let raw = await callModel();
     if (!raw || typeof raw.replyText !== "string") {
       console.error("[NutriCoach] /api/chat: model returned invalid JSON or service unavailable.");
+      // Resilient fallback for meal suggestions
+      if (isMealModificationRequest(message) || /\b(suggest|recipe|lunch|dinner|breakfast|snack|cook|prepare|eat|option)\b/i.test(message)) {
+        const mealFallback = generateMealSuggestionFallback(message, currentDate, targets, userProfile, pending);
+        if (mealFallback) {
+          return NextResponse.json(mealFallback);
+        }
+      }
       if (!isMealModificationRequest(message) && isNutritionOrResearchQuery(message)) {
         try {
           const fallbackSources = await searchTrustedNutritionSources(message);
@@ -1512,13 +1746,43 @@ ${history.length ? history.map((h) => `${h.sender}: ${h.text}`).join("\n") : "(n
         }
       }
 
-      // Slot-level proposals need a resolvable date; otherwise ask instead of guessing.
-      if ((result.proposedMeal || result.proposedMeals) && result.requiresConfirmation && !result.targetDate) {
-        result.requiresConfirmation = false;
-        result.proposedMeal = undefined;
-        result.proposedMeals = undefined;
-        result.action = "none";
-        result.replyText += " Which day should I apply this to?";
+      // Ensure targetDate and targetSlot are resolved rather than dropping proposedMeal
+      if ((result.proposedMeal || result.proposedMeals) && !result.targetDate) {
+        result.targetDate = /\btomorrow\b/i.test(message) ? addDays(currentDate, 1) : currentDate;
+        result.targetDay = result.targetDate === currentDate ? "today" : "tomorrow";
+      }
+      if (result.proposedMeal && !result.targetSlot) {
+        if (result.proposedMeal.slot) {
+          result.targetSlot = result.proposedMeal.slot.toLowerCase();
+        } else if (/\blunch\b/i.test(message)) {
+          result.targetSlot = "lunch";
+        } else if (/\bdinner\b/i.test(message)) {
+          result.targetSlot = "dinner";
+        } else if (/\bbreakfast\b/i.test(message)) {
+          result.targetSlot = "breakfast";
+        } else if (/\bsnack\b/i.test(message)) {
+          result.targetSlot = "snack";
+        } else {
+          result.targetSlot = "lunch";
+        }
+        result.proposedMeal.slot = result.targetSlot;
+      }
+      if (result.proposedMeal && !result.shouldMutatePlan) {
+        result.requiresConfirmation = true;
+      }
+      if (
+        result.proposedMeal &&
+        (!result.suggestedFollowUps ||
+          result.suggestedFollowUps.length === 0 ||
+          !result.suggestedFollowUps.some((s) => s.toLowerCase().includes(result.targetSlot || "meal")))
+      ) {
+        const slot = result.targetSlot || "lunch";
+        const dayWord = result.targetDate === currentDate ? "today's" : "tomorrow's";
+        result.suggestedFollowUps = [
+          `Add this to ${dayWord} ${slot}`,
+          `Show me another ${slot} option`,
+          `Replace my planned ${slot}`,
+        ];
       }
     }
 

@@ -109,8 +109,8 @@ interface NutriCoachContextType {
   logCustomMeal: (params: { mealType: MealType; mealName: string; calories: number; protein: number; carbs: number; fat: number; notes?: string }) => void;
   deleteLog: (logId: string) => void;
   replaceMeal: (params: { mealType: MealType; avoid?: string[]; reason?: string }) => void;
-  replaceMealSlot: (params: { mealType: MealType; date?: string; meal: MealSnapshot; source?: "coach" | "agent" | "custom" | string; rebalanceDinner?: boolean }) => Promise<{ success: boolean; error?: string }>;
-  replaceMultipleMealSlots: (params: { date: string; meals: Array<{ slot: MealType; meal: MealSnapshot }>; actionType?: string; userRequest?: string; summary?: string }) => Promise<{ success: boolean; error?: string }>;
+  replaceMealSlot: (params: { mealType: MealType; date?: string; meal: MealSnapshot; source?: "coach" | "agent" | "custom" | string; rebalanceDinner?: boolean }) => Promise<{ success: boolean; error?: string; isLogged?: boolean }>;
+  replaceMultipleMealSlots: (params: { date: string; meals: Array<{ slot: MealType; meal: MealSnapshot }>; actionType?: string; userRequest?: string; summary?: string }) => Promise<{ success: boolean; error?: string; isLogged?: boolean }>;
   addExtraMeal: (params: { mealType: string; mealName: string; calories: number; protein: number; carbs: number; fat: number; asLogged?: boolean; date?: string }) => void;
   confirmAddMeal: (params: { mealName: string; calories: number; protein: number; carbs: number; fat: number; mealType: string; targetDate: string; asLogged?: boolean }) => void;
   sendMemberMessage: (text: string) => Promise<void>;
@@ -148,7 +148,16 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
     return createInitialDemoState();
   });
 
-  const [currentView, setCurrentView] = useState<AppView>("portal");
+  const [currentView, setCurrentViewState] = useState<AppView>("portal");
+
+  const setCurrentView = (view: AppView) => {
+    setCurrentViewState(view);
+    if (view === "coach") {
+      setState((prev) => ({ ...prev, activeRole: "coach" }));
+    } else if (view === "member") {
+      setState((prev) => ({ ...prev, activeRole: "member" }));
+    }
+  };
 
   useEffect(() => {
     try {
@@ -223,7 +232,7 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
   const weeklySmoothingEnabled = isWeeklySmoothingApplied;
 
   const pendingProposals = state.actions.filter(
-    (a) => a.member_id === state.activeMemberId && (a.execution_status === "proposed" || a.execution_status === "pending_coach")
+    (a) => a.member_id === state.activeMemberId && a.execution_status === "proposed" && !a.requires_coach_approval
   );
 
   const recentAgentActions = [...state.actions].sort(
@@ -634,6 +643,9 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
     const memberId = state.activeMemberId;
     const actionTitle = date === today ? "Today" : date === addDays(today, 1) ? "Tomorrow" : date;
 
+    const memberDayLogs = (state.mealLogs[memberId] || []).filter((l) => l.date === date);
+    const loggedSlots = memberDayLogs.map((l) => l.meal_type);
+
     try {
       const res = await fetch("/api/mutate-meal", {
         method: "POST",
@@ -648,16 +660,18 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
           summary: `Updated ${actionTitle}'s ${mealType} to ${meal.meal_name} (${meal.calories} kcal)`,
           rebalanceDinner,
           gymId: state.gym.id,
+          existingMealLogs: memberDayLogs,
+          loggedSlots,
         }),
       });
 
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        console.error("[NutriCoach] Supabase mutation failed:", data?.error);
+        console.error("[NutriCoach] Meal mutation failed:", data?.error);
         return {
           success: false,
-          error: data?.error || "Failed to persist meal change to Supabase.",
+          error: data?.error || "Failed to persist meal change.",
         };
       }
 
@@ -753,6 +767,9 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
     const memberId = state.activeMemberId;
     const actionTitle = date === today ? "Today" : date === addDays(today, 1) ? "Tomorrow" : date;
 
+    const memberDayLogs = (state.mealLogs[memberId] || []).filter((l) => l.date === date);
+    const loggedSlots = memberDayLogs.map((l) => l.meal_type);
+
     try {
       const res = await fetch("/api/mutate-meal", {
         method: "POST",
@@ -765,6 +782,8 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
           userRequest: userRequest || `Adapt ${actionTitle}'s meal plan`,
           summary: summary || `Adapted ${meals.length} meals for ${actionTitle}`,
           gymId: state.gym.id,
+          existingMealLogs: memberDayLogs,
+          loggedSlots,
         }),
       });
 
@@ -774,7 +793,7 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
         console.error("[NutriCoach] Multi-meal mutation failed:", data?.error);
         return {
           success: false,
-          error: data?.error || "Failed to persist multi-meal adaptation to Supabase.",
+          error: data?.error || "Failed to persist multi-meal adaptation.",
         };
       }
 
@@ -1353,6 +1372,15 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
 
     const memberId = action.member_id;
     const isDemoAction = actionId.startsWith("act-") || actionId.startsWith("demo-");
+    const effectiveRole: Role = currentView === "coach" || state.activeRole === "coach" ? "coach" : state.activeRole;
+
+    console.log(`[NutriCoach] approveProposal initiated for ${actionId}:`, {
+      actionId,
+      actionType: action.action_type,
+      currentView,
+      effectiveRole,
+      isDemoAction,
+    });
 
     // 1. Notify and verify decision with backend API
     try {
@@ -1365,7 +1393,7 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
           optionIndex,
           note: "Approved by coach",
           currentStatus: action.execution_status,
-          callerRole: state.activeRole,
+          callerRole: effectiveRole,
         }),
       });
 
@@ -1373,12 +1401,13 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
 
       if (!res.ok || !data?.success) {
         const errorMsg = data?.error || `Server returned error (${res.status})`;
-        console.error("[NutriCoach] /api/agent/decision approval failed:", errorMsg);
+        console.error(`[NutriCoach] /api/agent/decision approval failed (${res.status}):`, errorMsg);
         return {
           success: false,
           error: errorMsg,
         };
       }
+      console.log(`[NutriCoach] /api/agent/decision approval confirmed:`, data);
     } catch (err: any) {
       // Unsuccessful network connection
       if (!isDemoAction) {
@@ -1546,7 +1575,7 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
         proposed_change: proposal || act.proposed_change,
         execution_status: "executed",
         approved: true,
-        decided_by: prev.activeRole === "coach" ? "Coach Captain Ahmed" : prev.activeMemberId,
+        decided_by: effectiveRole === "coach" ? "Coach Captain Ahmed" : prev.activeMemberId,
         decided_at: new Date().toISOString(),
         decision_note:
           act.action_type === "adapt_weekly_plan"
@@ -1557,6 +1586,8 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
         estimated_minutes_saved: impact.estimated_minutes_saved,
         estimated_cost_value: impact.estimated_cost_value,
       };
+
+      console.log(`[NutriCoach] Local state committed for ${actionId}: status='executed'`);
 
       return {
         ...prev,
@@ -1581,6 +1612,14 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
     }
 
     const isDemoAction = actionId.startsWith("act-") || actionId.startsWith("demo-");
+    const effectiveRole: Role = currentView === "coach" || state.activeRole === "coach" ? "coach" : state.activeRole;
+
+    console.log(`[NutriCoach] rejectProposal initiated for ${actionId}:`, {
+      actionId,
+      currentView,
+      effectiveRole,
+      isDemoAction,
+    });
 
     // 1. Notify and verify rejection with backend API
     try {
@@ -1592,7 +1631,7 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
           decision: "reject",
           note: note || "Declined by coach",
           currentStatus: action.execution_status,
-          callerRole: state.activeRole,
+          callerRole: effectiveRole,
         }),
       });
 
@@ -1600,12 +1639,13 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
 
       if (!res.ok || !data?.success) {
         const errorMsg = data?.error || `Server returned error (${res.status})`;
-        console.error("[NutriCoach] /api/agent/decision rejection failed:", errorMsg);
+        console.error(`[NutriCoach] /api/agent/decision rejection failed (${res.status}):`, errorMsg);
         return {
           success: false,
           error: errorMsg,
         };
       }
+      console.log(`[NutriCoach] /api/agent/decision rejection confirmed:`, data);
     } catch (err: any) {
       if (!isDemoAction) {
         console.error("[NutriCoach] Network error rejecting authenticated action:", err);
@@ -1627,7 +1667,7 @@ export function NutriCoachProvider({ children }: { children: React.ReactNode }) 
               ...a,
               execution_status: "rejected",
               approved: false,
-              decided_by: prev.activeRole === "coach" ? "Coach Captain Ahmed" : prev.activeMemberId,
+              decided_by: effectiveRole === "coach" ? "Coach Captain Ahmed" : prev.activeMemberId,
               decided_at: new Date().toISOString(),
               decision_note: note || "Declined by coach",
             }

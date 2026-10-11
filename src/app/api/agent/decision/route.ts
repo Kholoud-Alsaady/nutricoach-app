@@ -3,6 +3,9 @@ import { getSession } from "@/lib/auth";
 import { decideProposal } from "@/lib/agent/executor";
 import type { AgentAction } from "@/lib/types";
 
+// Server-side in-memory registry for tracking demo action execution status
+const demoActionDecisions = new Map<string, { status: "executed" | "rejected"; decidedBy: string; decidedAt: string }>();
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -29,15 +32,24 @@ export async function POST(req: NextRequest) {
     const callerRole = session?.profile?.role || body.callerRole;
     const isCoachRequiredDemo = actionId === "act-ahmed-audit" || actionId === "act-youssef-audit";
 
+    console.log(`[NutriCoach API] Decision request for ${actionId}:`, {
+      actionId,
+      decision,
+      callerRole,
+      isCoachRequiredDemo,
+      hasSession: !!session?.user,
+    });
+
     // Prevent members from approving actions requiring coach approval
     if (isCoachRequiredDemo && callerRole === "member" && decision === "approve") {
+      console.warn(`[NutriCoach API] Blocked: member role attempted to approve coach-required demo action ${actionId}`);
       return NextResponse.json(
         { success: false, error: "Forbidden: This action requires coach approval." },
         { status: 403 }
       );
     }
 
-    // State guard for demo actions passed with currentStatus
+    // Double-decision guard: Check client-supplied currentStatus
     if (body.currentStatus === "executed" || body.currentStatus === "rejected") {
       return NextResponse.json(
         {
@@ -49,9 +61,43 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Double-decision guard: Check server-side recorded status for demo actions
+    if (demoActionDecisions.has(actionId)) {
+      const existing = demoActionDecisions.get(actionId)!;
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Action has already been ${existing.status}.`,
+          currentStatus: existing.status,
+        },
+        { status: 400 }
+      );
+    }
+
     if (!session || !session.user) {
       // Guest or Demo mode
       if (actionId.startsWith("act-") || actionId.startsWith("demo-")) {
+        const isKnownDemo =
+          actionId === "act-ahmed-audit" ||
+          actionId === "act-youssef-audit" ||
+          actionId === "act-layla-today" ||
+          actionId.startsWith("demo-") ||
+          /^act-\d+/.test(actionId);
+
+        if (!isKnownDemo) {
+          return NextResponse.json(
+            { success: false, error: `Action ${actionId} not found.` },
+            { status: 404 }
+          );
+        }
+
+        const newStatus = decision === "approve" ? "executed" : "rejected";
+        demoActionDecisions.set(actionId, {
+          status: newStatus,
+          decidedBy: callerRole === "coach" ? "Coach Captain Ahmed" : "member",
+          decidedAt: new Date().toISOString(),
+        });
+
         return NextResponse.json({
           success: true,
           isDemo: true,

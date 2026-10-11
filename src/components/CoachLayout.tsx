@@ -111,10 +111,12 @@ export function CoachLayout() {
 
   const handleApproveAction = async (actionId: string) => {
     if (processingActionId) return;
+    console.log(`[CoachLayout] handleApproveAction clicked for actionId: ${actionId}`);
     setProcessingActionId(actionId);
     setActionFeedback(null);
     try {
       const res = await approveProposal(actionId);
+      console.log(`[CoachLayout] approveProposal result for ${actionId}:`, res);
       if (res && !res.success) {
         setActionFeedback({ type: "error", message: res.error || "Failed to approve action." });
       } else {
@@ -130,6 +132,7 @@ export function CoachLayout() {
         setActionFeedback({ type: "success", message: `✓ ${detail}` });
       }
     } catch (err: any) {
+      console.error(`[CoachLayout] handleApproveAction exception:`, err);
       setActionFeedback({ type: "error", message: err?.message || "An unexpected error occurred." });
     } finally {
       setProcessingActionId(null);
@@ -138,10 +141,12 @@ export function CoachLayout() {
 
   const handleRejectAction = async (actionId: string) => {
     if (processingActionId) return;
+    console.log(`[CoachLayout] handleRejectAction clicked for actionId: ${actionId}`);
     setProcessingActionId(actionId);
     setActionFeedback(null);
     try {
       const res = await rejectProposal(actionId, "Declined by coach");
+      console.log(`[CoachLayout] rejectProposal result for ${actionId}:`, res);
       if (res && !res.success) {
         setActionFeedback({ type: "error", message: res.error || "Failed to reject action." });
       } else {
@@ -150,6 +155,7 @@ export function CoachLayout() {
         setActionFeedback({ type: "success", message: `Proposal declined for ${member?.name || "Member"}.` });
       }
     } catch (err: any) {
+      console.error(`[CoachLayout] handleRejectAction exception:`, err);
       setActionFeedback({ type: "error", message: err?.message || "An unexpected error occurred." });
     } finally {
       setProcessingActionId(null);

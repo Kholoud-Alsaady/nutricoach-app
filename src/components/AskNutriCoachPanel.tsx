@@ -40,6 +40,7 @@ interface MealPlanActionCardData {
   fat: number;
   subtext: string;
   confirmed: boolean;
+  ingredients?: string[];
 }
 
 interface AlternativesCardData {
@@ -1011,13 +1012,12 @@ export function AskNutriCoachPanel() {
           });
         }
 
-        // If proposed single meal requires user confirmation
+        // If proposed single meal is present (recommendation or replacement)
         if (
           data.proposedMeal &&
-          data.requiresConfirmation &&
           (!data.proposedMeals || data.proposedMeals.length === 0)
         ) {
-          const slot = (data.targetSlot || "dinner") as MealType;
+          const slot = (data.targetSlot || data.proposedMeal.slot || "dinner") as MealType;
           const targetDay = data.targetDay || "today";
           const dayOffset = targetDay === "tomorrow" ? 1 : 0;
           const targetDate = data.targetDate || addDays(state.today, dayOffset);
@@ -1033,14 +1033,15 @@ export function AskNutriCoachPanel() {
             protein: data.proposedMeal.protein,
             carbs: data.proposedMeal.carbs,
             fat: data.proposedMeal.fat,
+            ingredients: data.proposedMeal.ingredients || [],
             subtext:
-              data.remainingTargetsNote || "Dinner will be automatically adjusted to keep targets balanced.",
+              data.remainingTargetsNote || `${slot.charAt(0).toUpperCase() + slot.slice(1)} proposal aligned with your macro targets.`,
             confirmed: false,
           };
 
           setPendingProposal({
             id: `prop-${Date.now()}`,
-            action: data.action || "replace_meal",
+            action: data.action === "suggest_meal" ? "replace_meal" : (data.action || "replace_meal"),
             intent: data.intent || "meal_replacement",
             targetDate,
             targetSlot: slot,
@@ -1390,7 +1391,7 @@ export function AskNutriCoachPanel() {
         protein: card.protein,
         carbs: card.carbs,
         fat: card.fat,
-        ingredients: [card.foodName.toLowerCase()],
+        ingredients: card.ingredients && card.ingredients.length > 0 ? card.ingredients : [card.foodName.toLowerCase()],
         tags: [card.targetSlot, "agent", "rebalanced"],
       },
       source: "agent",
@@ -1409,10 +1410,35 @@ export function AskNutriCoachPanel() {
         {
           id: `ai-conf-${Date.now()}`,
           sender: "agent",
-          text: `Changes applied successfully. Your ${card.targetDayLabel.toLowerCase()}'s ${card.targetSlot} has been updated to ${card.foodName}.`,
+          text: `Changes applied successfully! Your ${card.targetDayLabel.toLowerCase()}'s ${card.targetSlot} has been updated to ${card.foodName} (${card.calories} kcal, ${card.protein}g protein).`,
           intent: "meal_replacement",
           action: "replace_meal",
           time: "Just now",
+          suggestedFollowUps: ["View today's remaining macros", "Recommend a dinner recipe"],
+        },
+      ]);
+      setPendingProposal(null);
+    } else if (result.isLogged) {
+      setAiMessages((prev) => [
+        ...prev,
+        {
+          id: `ai-eaten-${Date.now()}`,
+          sender: "agent",
+          text: `You have already logged ${card.targetSlot} for ${card.targetDayLabel}, so I cannot overwrite it. Would you like to add ${card.foodName} as an extra meal or schedule it for tomorrow instead?`,
+          intent: "meal_logging",
+          action: "none",
+          time: "Just now",
+          pendingConfirmation: {
+            mealName: card.foodName,
+            calories: card.calories,
+            protein: card.protein,
+            carbs: card.carbs,
+            fat: card.fat,
+            mealType: "snack",
+            targetDate: card.targetDate,
+            isExtraSnack: true,
+          },
+          suggestedFollowUps: ["Add as extra snack", "Schedule for tomorrow"],
         },
       ]);
       setPendingProposal(null);
@@ -1422,7 +1448,7 @@ export function AskNutriCoachPanel() {
         {
           id: `ai-err-${Date.now()}`,
           sender: "agent",
-          text: "Sorry, I couldn't save those changes. Your original meal plan is unchanged. Please try again.",
+          text: result.error || "Sorry, I couldn't save those changes. Your original meal plan is unchanged. Please try again.",
           intent: "error",
           action: "none",
           time: "Just now",
@@ -1474,6 +1500,7 @@ export function AskNutriCoachPanel() {
           intent: "meal_adaptation",
           action: "adapt_day",
           time: "Just now",
+          suggestedFollowUps: ["View today's remaining macros", "Recommend a dinner recipe"],
         },
       ]);
       setPendingProposal(null);
@@ -1483,7 +1510,7 @@ export function AskNutriCoachPanel() {
         {
           id: `ai-err-${Date.now()}`,
           sender: "agent",
-          text: "Sorry, I couldn't save those changes. Your original meal plan is unchanged. Please try again.",
+          text: result.error || "Sorry, I couldn't save those changes. Your original meal plan is unchanged. Please try again.",
           intent: "error",
           action: "none",
           time: "Just now",
@@ -1503,8 +1530,188 @@ export function AskNutriCoachPanel() {
         intent: "cancel",
         action: "none",
         time: "Just now",
+        suggestedFollowUps: ["Suggest a balanced lunch", "Recommend a dinner recipe", "View today's remaining macros"],
       },
     ]);
+  };
+
+  const handleActionChip = async (chip: string, msg: AssistantMessage) => {
+    const trimmed = chip.trim();
+    const lower = trimmed.toLowerCase();
+
+    // 1. "View today's remaining macros"
+    if (/view.*(remaining\s+)?macros/i.test(lower) || lower === "remaining macros" || lower.includes("view today's macros")) {
+      const userMsg: AssistantMessage = {
+        id: `usr-${Date.now()}`,
+        sender: "user",
+        text: trimmed,
+        time: "Just now",
+      };
+      const rem = todayRemainingMacros;
+      const agentMsg: AssistantMessage = {
+        id: `ai-${Date.now()}`,
+        sender: "agent",
+        text: `Here are your remaining macros for today:\n• Calories: ${rem.calories} kcal remaining\n• Protein: ${rem.protein}g remaining\n• Carbs: ${rem.carbs}g remaining\n• Fat: ${rem.fat}g remaining\n\nDaily targets: ${activeTargets.calories} kcal, ${activeTargets.protein}g protein, ${activeTargets.carbs}g carbs, ${activeTargets.fat}g fat.`,
+        intent: "progress_question",
+        action: "none",
+        time: "Just now",
+        suggestedFollowUps: ["Suggest a balanced lunch", "Recommend a dinner recipe"],
+      };
+      setAiMessages((prev) => [...prev, userMsg, agentMsg]);
+      return;
+    }
+
+    // 2. "Cancel" / "Discard"
+    if (/^(cancel|discard|nevermind|never mind)\b/i.test(lower)) {
+      handleCancelProposal(msg.id);
+      return;
+    }
+
+    // 3. "Show me another option" / "Show other dinner ideas"
+    if (/\b(another|different|other|alternative)\b/i.test(lower) && /\b(option|meal|recipe|lunch|dinner|breakfast|snack|idea|ideas)\b/i.test(lower)) {
+      handleSend(trimmed);
+      return;
+    }
+
+    // 4. Action / Confirmation buttons
+    // e.g. "Add this to today's lunch", "Replace today's dinner with this meal", "Replace my planned lunch",
+    // "Yes, use the chicken and rice stir-fry", "Confirm & Apply Changes", "Add to today's lunch", "Apply it"
+    const isConfirmOrAdd =
+      /^(yes|apply|confirm|do it|sure|ok)\b/i.test(lower) ||
+      /\badd\s+(this\s+)?to\s+(today|tomorrow|my|the)?/i.test(lower) ||
+      /\breplace\s+(today|tomorrow|my|the)?/i.test(lower) ||
+      /\buse\s+(the|this)/i.test(lower) ||
+      lower.includes("confirm & apply");
+
+    // Multi-meal proposal confirmation (e.g. day plan)
+    if (isConfirmOrAdd && (msg.dayPlanCard || (pendingProposal?.meals && pendingProposal.meals.length > 1))) {
+      if (msg.dayPlanCard) {
+        await handleApplyDayPlanCard(msg.id, msg.dayPlanCard);
+        return;
+      }
+    }
+
+    // Resolve the referenced meal from pendingProposal or message card
+    const propMeal =
+      pendingProposal?.meals?.[0] ||
+      (msg.mealPlanCard
+        ? {
+            title: msg.mealPlanCard.foodName,
+            calories: msg.mealPlanCard.calories,
+            protein: msg.mealPlanCard.protein,
+            carbs: msg.mealPlanCard.carbs,
+            fat: msg.mealPlanCard.fat,
+            ingredients: msg.mealPlanCard.ingredients || [msg.mealPlanCard.foodName.toLowerCase()],
+            slot: msg.mealPlanCard.targetSlot,
+          }
+        : null);
+
+    if (isConfirmOrAdd && propMeal) {
+      // Determine slot
+      let slot: MealType = (pendingProposal?.targetSlot || msg.mealPlanCard?.targetSlot || propMeal.slot || "lunch") as MealType;
+      if (lower.includes("lunch")) slot = "lunch";
+      else if (lower.includes("dinner")) slot = "dinner";
+      else if (lower.includes("breakfast")) slot = "breakfast";
+      else if (lower.includes("snack")) slot = "snack";
+
+      // Determine date
+      const isTomorrow = lower.includes("tomorrow");
+      const targetDate = isTomorrow ? addDays(state.today, 1) : (pendingProposal?.targetDate || msg.mealPlanCard?.targetDate || state.today);
+      const dayLabel = targetDate === state.today ? "today" : "tomorrow";
+
+      // CHECK CONSUMPTION STATUS: has this slot already been logged for that date?
+      const memberLogs = state.mealLogs[state.activeMemberId] || [];
+      const eatenLog = memberLogs.find((l) => l.date === targetDate && l.meal_type === slot);
+
+      const userMsg: AssistantMessage = {
+        id: `usr-${Date.now()}`,
+        sender: "user",
+        text: trimmed,
+        time: "Just now",
+      };
+
+      if (eatenLog) {
+        // EATEN-MEAL PROTECTION (Section 3 requirement)
+        const agentMsg: AssistantMessage = {
+          id: `ai-eaten-${Date.now()}`,
+          sender: "agent",
+          text: `You have already logged ${slot} (${eatenLog.meal_name}, ${eatenLog.calories} kcal) for ${dayLabel}. To protect your logged nutrition history, I will not overwrite it. Would you like me to add ${propMeal.title} as an extra snack or schedule it for tomorrow instead?`,
+          intent: "meal_logging",
+          action: "none",
+          time: "Just now",
+          pendingConfirmation: {
+            mealName: propMeal.title,
+            calories: propMeal.calories,
+            protein: propMeal.protein,
+            carbs: propMeal.carbs,
+            fat: propMeal.fat,
+            mealType: "snack",
+            targetDate,
+            isExtraSnack: true,
+          },
+          suggestedFollowUps: ["Add as extra snack", "Schedule for tomorrow"],
+        };
+        setAiMessages((prev) => [...prev, userMsg, agentMsg]);
+        return;
+      }
+
+      // Slot is not eaten: execute mutation!
+      setAiMessages((prev) => [...prev, userMsg]);
+      setLoading(true);
+
+      const result = await replaceMealSlot({
+        mealType: slot,
+        date: targetDate,
+        meal: {
+          meal_name: propMeal.title,
+          calories: propMeal.calories,
+          protein: propMeal.protein,
+          carbs: propMeal.carbs,
+          fat: propMeal.fat,
+          ingredients: propMeal.ingredients && propMeal.ingredients.length > 0 ? propMeal.ingredients : [propMeal.title.toLowerCase()],
+          tags: [slot, "agent", "rebalanced"],
+        },
+        source: "agent",
+        rebalanceDinner: slot !== "dinner",
+      });
+
+      setLoading(false);
+
+      if (result.success) {
+        setPendingProposal(null);
+        const agentMsg: AssistantMessage = {
+          id: `ai-conf-${Date.now()}`,
+          sender: "agent",
+          text: `Changes applied successfully! I've updated your ${dayLabel}'s ${slot} to ${propMeal.title} (${propMeal.calories} kcal, ${propMeal.protein}g protein).`,
+          intent: "meal_replacement",
+          action: "replace_meal",
+          time: "Just now",
+          suggestedFollowUps: ["View today's remaining macros", "Recommend a dinner recipe"],
+        };
+        setAiMessages((prev) => [
+          ...prev.map((m) =>
+            m.id === msg.id && m.mealPlanCard
+              ? { ...m, mealPlanCard: { ...m.mealPlanCard, confirmed: true } }
+              : m
+          ),
+          agentMsg,
+        ]);
+      } else {
+        const agentMsg: AssistantMessage = {
+          id: `ai-err-${Date.now()}`,
+          sender: "agent",
+          text: result.error || "Sorry, I couldn't save those changes. Your original meal plan is unchanged. Please try again.",
+          intent: "error",
+          action: "none",
+          time: "Just now",
+        };
+        setAiMessages((prev) => [...prev, agentMsg]);
+      }
+      return;
+    }
+
+    // Default: send to /api/chat
+    handleSend(trimmed);
   };
 
 
@@ -1981,8 +2188,8 @@ export function AskNutriCoachPanel() {
                   {m.suggestedFollowUps.map((chip, chipIdx) => (
                     <button
                       key={chipIdx}
-                      onClick={() => handleSend(chip)}
-                      className="text-[11px] bg-surface hover:bg-surface-subtle text-ink-primary hover:text-brand px-2.5 py-1 rounded-md border border-border hover:border-brand/40 transition-colors font-medium shadow-hairline text-left"
+                      onClick={() => handleActionChip(chip, m)}
+                      className="text-[11px] bg-surface hover:bg-surface-subtle text-ink-primary hover:text-brand px-2.5 py-1 rounded-md border border-border hover:border-brand/40 transition-colors font-medium shadow-hairline text-left cursor-pointer"
                     >
                       {chip}
                     </button>
