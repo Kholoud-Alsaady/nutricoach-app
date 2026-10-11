@@ -20,6 +20,7 @@ import {
 import { useNutriCoach } from "./NutriCoachContext";
 import { timeAgo } from "@/lib/dates";
 import { AppTourModal } from "./AppTourModal";
+import { WelcomeTourModal } from "./WelcomeTourModal";
 
 export function CoachLayout() {
   const { state, allMessages, setActiveMember, setCurrentView, approveProposal, rejectProposal, sendCoachReply } = useNutriCoach();
@@ -27,6 +28,32 @@ export function CoachLayout() {
   const [selectedMemberId, setSelectedMemberId] = useState<string>(state.members[0].id);
   const [coachInput, setCoachInput] = useState("");
   const [isTourOpen, setIsTourOpen] = useState(false);
+  const [isWelcomeOpen, setIsWelcomeOpen] = useState(false);
+
+  // Check if first entry to Coach workspace
+  React.useEffect(() => {
+    if (typeof window !== "undefined") {
+      const seen = localStorage.getItem("nutricoach_welcome_seen_coach");
+      if (!seen) {
+        setIsWelcomeOpen(true);
+      }
+    }
+  }, []);
+
+  const handleDismissWelcome = () => {
+    setIsWelcomeOpen(false);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("nutricoach_welcome_seen_coach", "true");
+    }
+  };
+
+  const handleStartTourFromWelcome = () => {
+    setIsWelcomeOpen(false);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("nutricoach_welcome_seen_coach", "true");
+    }
+    setIsTourOpen(true);
+  };
 
   // Aggregate 7-day adherence data
   const weekData = [
@@ -581,6 +608,14 @@ export function CoachLayout() {
           )}
         </main>
       </div>
+
+      {/* Welcome Onboarding Modal */}
+      <WelcomeTourModal
+        isOpen={isWelcomeOpen}
+        onClose={handleDismissWelcome}
+        onStartTour={handleStartTourFromWelcome}
+        workspaceType="coach"
+      />
 
       {/* Interactive Read-Only Coach Workspace Tour Modal */}
       <AppTourModal

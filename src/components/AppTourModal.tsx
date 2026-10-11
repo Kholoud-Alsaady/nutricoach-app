@@ -12,6 +12,9 @@ import {
 export interface TourStep {
   title: string;
   category: string;
+  section: string;
+  sectionStep: number;
+  sectionTotal: number;
   targetTab?: string;
   selector: string;
   description: string;
@@ -21,109 +24,194 @@ export interface TourStep {
 }
 
 export const MEMBER_TOUR_STEPS: TourStep[] = [
+  // SECTION 1: TODAY
   {
-    title: "Today's Nutrition Overview",
-    category: "Today Overview",
+    title: "Today's Nutrition Targets",
+    category: "Nutrition Targets",
+    section: "Today",
+    sectionStep: 1,
+    sectionTotal: 3,
     targetTab: "today",
-    selector: '[data-tour="member-today-overview"]',
+    selector: '[data-tour="member-today-targets"]',
     description:
-      "Your daily command center shows live progress toward your energy and macronutrient targets. Calorie and macro bars update in real time as you log meals.",
-    keyPoints: [
-      "Live macro bars update as meals are logged.",
-      "Adaptive adjustment proposals appear dynamically if deviations occur.",
-    ],
+      "Monitor consumed and remaining calories and macros throughout the day. Totals and balances update automatically as meals are logged and targets adapt.",
     preferredPlacement: "bottom",
   },
   {
-    title: "Personalized Daily Meal Plan",
-    category: "Daily Meals",
-    targetTab: "plan",
-    selector: '[data-tour="member-plan-section"]',
+    title: "Goal-Specific Educational Articles",
+    category: "Education",
+    section: "Today",
+    sectionStep: 2,
+    sectionTotal: 3,
+    targetTab: "today",
+    selector: '[data-tour="member-today-tip"]',
     description:
-      "Review your planned breakfast, lunch, snack, and dinner. Each recipe is balanced to fit your targets, incorporating Egyptian and international wholesome foods.",
-    keyPoints: [
-      "Planned calorie and protein distribution per meal slot.",
-      "Browse 7-day variation and upcoming days.",
-    ],
+      "Explore short, approximately two-minute nutrition articles relevant to your fitness goal, covering protein timing, meal frequency, and healthy habit building.",
     preferredPlacement: "bottom",
   },
   {
-    title: "Smart Meal Swaps & Alternatives",
-    category: "Meal Adaptation",
-    targetTab: "plan",
-    selector: '[data-tour="member-meal-swap"]',
-    description:
-      "Need a change? Tap Replace on any meal slot to view coach-verified alternatives that strictly honor your saved allergies and dietary preferences.",
-    keyPoints: [
-      "Instant alternative recipes matching your slot budget.",
-      "Strictly respects all saved allergies and disliked foods.",
-    ],
-    preferredPlacement: "left",
-  },
-  {
-    title: "Meal Logging Controls",
-    category: "Tracking",
+    title: "Today's Meal Stream & Logging",
+    category: "Meal Logging",
+    section: "Today",
+    sectionStep: 3,
+    sectionTotal: 3,
     targetTab: "today",
-    selector: '[data-tour="member-meal-log"]',
+    selector: '[data-tour="member-meal-stream"]',
     description:
-      "Record completed meals with one click using 'Ate planned', or enter custom portions to keep your daily intake accurate without guilt or judgment.",
-    keyPoints: [
-      "One-click logging for planned meals.",
-      "Support for custom off-plan portions.",
-    ],
+      "Review today's planned meals and record what you eat. Use 'Ate planned' for scheduled meals, 'Log custom' for off-plan portions, or 'Replace' to choose alternatives.",
     preferredPlacement: "top",
   },
+
+  // SECTION 2: PLAN
   {
-    title: "Dietary Preferences & Guardrails",
-    category: "Safety Guardrails",
-    targetTab: "profile",
-    selector: '[data-tour="member-dietary-guardrails"]',
+    title: "Goal & Diet Plan Overview",
+    category: "Plan Overview",
+    section: "Plan",
+    sectionStep: 1,
+    sectionTotal: 3,
+    targetTab: "plan",
+    selector: '[data-tour="member-plan-goal"]',
     description:
-      "Manage food allergies, intolerances, and disliked ingredients directly. Allergies act as strict safety guardrails, while disliked foods guide meal variety.",
-    keyPoints: [
-      "Allergies & intolerances are strictly excluded across all meals.",
-      "Excluded foods and dietary patterns guide planner variety.",
-    ],
-    preferredPlacement: "top",
-  },
-  {
-    title: "Calibrated Member Profile",
-    category: "Settings & Targets",
-    targetTab: "profile",
-    selector: '[data-tour="member-profile-overview"]',
-    description:
-      "Review your personal target calories, BMR metrics, weight goals, and activity level prescribed by your coaching staff.",
-    keyPoints: [
-      "Calibrated BMR and target macros.",
-      "Quantitative goals and body composition deltas.",
-    ],
+      "Displays your prescribed nutrition goal, macro split ratio, and active dietary pattern providing context for your weekly schedule.",
     preferredPlacement: "bottom",
   },
   {
-    title: "Adherence History & Progress Trends",
-    category: "Analytics",
+    title: "Weekly Auto-Balance",
+    category: "Adaptive Rebalancing",
+    section: "Plan",
+    sectionStep: 2,
+    sectionTotal: 3,
+    targetTab: "plan",
+    selector: '[data-tour="member-plan-autobalance"]',
+    description:
+      "Displays weekly rebalancing status when daily intake shifts. You choose whether to apply proposed adjustments to upcoming days or keep original targets.",
+    preferredPlacement: "bottom",
+  },
+  {
+    title: "Detailed 7-Day Meal Plan",
+    category: "Weekly Plan",
+    section: "Plan",
+    sectionStep: 3,
+    sectionTotal: 3,
+    targetTab: "plan",
+    selector: '[data-tour="member-plan-details"]',
+    description:
+      "Review planned meals day by day across the week. You can adapt full daily menus or tap Replace on any individual slot to view verified compliant alternatives.",
+    preferredPlacement: "bottom",
+  },
+
+  // SECTION 3: PROGRESS
+  {
+    title: "Progress Metrics at a Glance",
+    category: "Telemetry",
+    section: "Progress",
+    sectionStep: 1,
+    sectionTotal: 4,
     targetTab: "progress",
-    selector: '[data-tour="member-progress-content"]',
+    selector: '[data-tour="member-progress-metrics"]',
     description:
-      "Review historical tracking consistency, macro hit rates, and adherence trends over the past 7–14 days to understand long-term habit sustainability.",
-    keyPoints: [
-      "Visual adherence badges highlight consistent tracking.",
-      "Planned vs. logged telemetry day by day.",
-    ],
+      "Tracks rolling 7-Day Adherence, Meal Consistency, Current Streak, and Average Daily Protein compared against your prescribed targets.",
+    preferredPlacement: "bottom",
+  },
+  {
+    title: "Behavioral Pattern Summary",
+    category: "Summary",
+    section: "Progress",
+    sectionStep: 2,
+    sectionTotal: 4,
+    targetTab: "progress",
+    selector: '[data-tour="member-progress-summary"]',
+    description:
+      "Summarizes your recent nutrition consistency and highlights tracking momentum based on recorded meals and caloric hit rates.",
+    preferredPlacement: "bottom",
+  },
+  {
+    title: "10-Day Adherence Log History",
+    category: "History",
+    section: "Progress",
+    sectionStep: 3,
+    sectionTotal: 4,
+    targetTab: "progress",
+    selector: '[data-tour="member-progress-history"]',
+    description:
+      "Review daily adherence history comparing consumed intake with planned targets to celebrate consistency and spot unlogged gaps.",
+    preferredPlacement: "bottom",
+  },
+  {
+    title: "Forward-Looking Goal Projections",
+    category: "Projections",
+    section: "Progress",
+    sectionStep: 4,
+    sectionTotal: 4,
+    targetTab: "progress",
+    selector: '[data-tour="member-progress-projections"]',
+    description:
+      "Explore estimated body composition trajectories across 2 weeks to 6 months based on application calculations and logged adherence.",
+    preferredPlacement: "top",
+  },
+
+  // SECTION 4: SUPPORT
+  {
+    title: "Direct Human Coach Messaging",
+    category: "Coach Support",
+    section: "Support",
+    sectionStep: 1,
+    sectionTotal: 2,
+    targetTab: "ask",
+    selector: '[data-tour="member-coach-direct"]',
+    description:
+      "Reach your assigned human coach for personalized guidance, workout fueling strategies, and expert support whenever questions arise.",
     preferredPlacement: "bottom",
   },
   {
     title: "Ask NutriCoach AI Assistant",
     category: "AI Guidance",
+    section: "Support",
+    sectionStep: 2,
+    sectionTotal: 2,
     targetTab: "today",
     selector: '[data-tour="member-ask-nutricoach"]',
     description:
-      "Ask nutrition questions, explore research from trusted authorities (WHO, PubMed), or request conversational meal adjustments in natural language.",
-    keyPoints: [
-      "Evidence-based responses cite authoritative scientific sources.",
-      "Natural greetings and meal adjustments with confirmation cards.",
-    ],
+      "Ask questions about remaining calories, request meal swaps, or explore evidence-based nutrition research from trusted sources like WHO and PubMed.",
     preferredPlacement: "left",
+  },
+
+  // SECTION 5: PROFILE
+  {
+    title: "Member Profile & Biometrics",
+    category: "Profile",
+    section: "Profile",
+    sectionStep: 1,
+    sectionTotal: 3,
+    targetTab: "profile",
+    selector: '[data-tour="member-profile-overview"]',
+    description:
+      "View your personal biometric details, primary goal badge, and calibrated health parameters configured for your account.",
+    preferredPlacement: "bottom",
+  },
+  {
+    title: "Dietary Preferences & Guardrails",
+    category: "Guardrails",
+    section: "Profile",
+    sectionStep: 2,
+    sectionTotal: 3,
+    targetTab: "profile",
+    selector: '[data-tour="member-dietary-guardrails"]',
+    description:
+      "Manage strict food allergies, intolerances, and disliked foods. Allergies serve as non-negotiable safety guardrails across all meal recommendations and swaps.",
+    preferredPlacement: "top",
+  },
+  {
+    title: "Prescribed Quantitative Targets",
+    category: "Targets",
+    section: "Profile",
+    sectionStep: 3,
+    sectionTotal: 3,
+    targetTab: "profile",
+    selector: '[data-tour="member-profile-targets"]',
+    description:
+      "Review coach-prescribed body composition targets and activity level settings that calibrate your daily calorie and macronutrient schedule.",
+    preferredPlacement: "top",
   },
 ];
 
@@ -131,92 +219,85 @@ export const COACH_TOUR_STEPS: TourStep[] = [
   {
     title: "Coach Dashboard & Business Overview",
     category: "Overview",
+    section: "Overview",
+    sectionStep: 1,
+    sectionTotal: 3,
     targetTab: "overview",
     selector: '[data-tour="coach-overview-metrics"]',
     description:
-      "Monitor your entire roster of active members, overall team consistency, and high-level engagement at a glance.",
-    keyPoints: [
-      "Track active member count, stable adherence, and triage exceptions.",
-      "Quantifies automated AI adaptations and coach hours returned.",
-    ],
+      "Monitor your gym roster at a glance. Track active athlete volume, stable adherence rates, and priority triage exceptions in real time.",
     preferredPlacement: "bottom",
   },
   {
     title: "Member Management & App Preview",
     category: "Members",
+    section: "Overview",
+    sectionStep: 2,
+    sectionTotal: 3,
     targetTab: "overview",
     selector: '[data-tour="coach-member-roster"]',
     description:
-      "Inspect individual athletes on your roster and use 'Preview App' to inspect any athlete's live dashboard from their perspective.",
-    keyPoints: [
-      "Browse active members and their prescribed goals.",
-      "One-click app preview for instant verification.",
-    ],
+      "Browse active members and their prescribed goals. Use 'Preview App' on any athlete card to inspect their live dashboard from their perspective.",
     preferredPlacement: "top",
   },
   {
     title: "Reviewing Member Logs & Adherence",
     category: "Tracking",
+    section: "Overview",
+    sectionStep: 3,
+    sectionTotal: 3,
     targetTab: "overview",
     selector: '[data-tour="coach-adherence-panel"]',
     description:
-      "Review real-time meal logging patterns across your gym to catch adherence gaps early before they become persistent setbacks.",
-    keyPoints: [
-      "Examine aggregate 7-day team consistency trends.",
-      "Identify patterns such as weekend deviation dips.",
-    ],
+      "Review real-time meal logging patterns across your gym to catch adherence gaps early before they become persistent training setbacks.",
     preferredPlacement: "bottom",
   },
   {
     title: "Priority Triage Queue: Needs Attention",
     category: "Triage",
+    section: "Triage",
+    sectionStep: 1,
+    sectionTotal: 1,
     targetTab: "triage",
     selector: '[data-tour="coach-triage-panel"]',
     description:
       "Quickly identify athletes experiencing nutritional deviations, missed tracking days, or pending compensatory meal adjustments.",
-    keyPoints: [
-      "Prioritizes athletes based on behavioral exceptions.",
-      "Contextual badges show issue types for rapid outreach.",
-    ],
     preferredPlacement: "bottom",
   },
   {
     title: "Reviewing Exceptions & Human Oversight",
     category: "Action Review",
+    section: "Audit",
+    sectionStep: 1,
+    sectionTotal: 2,
     targetTab: "audit",
     selector: '[data-tour="coach-audit-panel"]',
     description:
       "Maintain clinical oversight: review proposed AI meal adaptations before they take effect. Approve or reject actions with a single click.",
-    keyPoints: [
-      "Human-in-the-loop validation for automated adjustments.",
-      "Coaches retain final authority over all meal adjustments.",
-    ],
     preferredPlacement: "bottom",
   },
   {
     title: "Direct Coach Messaging & Templates",
     category: "Communication",
+    section: "Communication",
+    sectionStep: 1,
+    sectionTotal: 1,
     targetTab: "questions",
     selector: '[data-tour="coach-questions-panel"]',
     description:
       "Engage directly with your athletes. View message threads with logging context and send personalized notes or rapid coaching templates.",
-    keyPoints: [
-      "Bidirectional messaging with member logging context.",
-      "Rapid one-click templates for common nutrition guidance.",
-    ],
     preferredPlacement: "top",
   },
   {
-    title: "Agent Operations & Gym Economics",
-    category: "ROI & Impact",
+    title: "Activity Log & Operational Metrics",
+    category: "Audit & ROI",
+    section: "Audit",
+    sectionStep: 2,
+    sectionTotal: 2,
     targetTab: "audit",
     selector: '[data-tour="coach-economics-card"]',
     description:
       "Review verifiable operational time savings, showing manual coach minutes saved per member without exaggerated health claims.",
-    keyPoints: [
-      "Verifiable breakdown of manual minutes vs. agent minutes.",
-      "Calculated time savings allow focus on high-touch member care.",
-    ],
     preferredPlacement: "top",
   },
 ];
@@ -449,14 +530,14 @@ export function AppTourModal({
         }}
         className="bg-surface rounded-xl border border-border shadow-2xl p-4 text-ink-primary transition-all duration-200 animate-in fade-in zoom-in-95 select-none"
       >
-        {/* Header: Badge, Step Indicator & Close */}
+        {/* Header: Section Group Badge, Step Indicator & Close */}
         <div className="flex items-center justify-between pb-2 border-b border-border/80">
           <div className="flex items-center gap-1.5">
             <span className="w-5 h-5 rounded-md bg-brand-tint text-brand flex items-center justify-center font-bold text-[10px]">
               <Compass className="w-3.5 h-3.5" />
             </span>
             <span className="text-[10px] font-semibold text-brand uppercase tracking-wider">
-              {currentStep.category}
+              {currentStep.section} · {currentStep.sectionStep} of {currentStep.sectionTotal}
             </span>
           </div>
 

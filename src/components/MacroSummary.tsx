@@ -38,7 +38,7 @@ export function MacroSummary() {
   ];
 
   return (
-    <div className="bg-surface rounded-lg border border-border p-4 shadow-card">
+    <div className="bg-surface rounded-lg border border-border p-4 shadow-card" data-tour="member-today-targets">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-xs font-medium text-ink-primary">Today&apos;s Nutrition Targets</h3>
         <span className="text-[11px] text-ink-muted">

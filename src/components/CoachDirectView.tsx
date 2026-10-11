@@ -36,7 +36,7 @@ export function CoachDirectView() {
   return (
     <div className="space-y-4 flex flex-col h-[calc(100vh-140px)] min-h-[560px]">
       {/* Coach Header Profile Card */}
-      <div className="bg-surface rounded-lg border border-border p-4 shadow-card flex items-center justify-between gap-4">
+      <div className="bg-surface rounded-lg border border-border p-4 shadow-card flex items-center justify-between gap-4" data-tour="member-coach-direct">
         <div className="flex items-center gap-3">
           <div className="relative">
             <div className="w-11 h-11 rounded-full bg-brand text-white flex items-center justify-center font-bold text-base shadow-hairline">

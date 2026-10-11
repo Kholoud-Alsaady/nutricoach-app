@@ -538,7 +538,7 @@ export function MemberProfileView() {
       </div>
 
       {/* Target Breakdown Card */}
-      <div className="bg-surface rounded-lg border border-border p-5 shadow-card space-y-3">
+      <div className="bg-surface rounded-lg border border-border p-5 shadow-card space-y-3" data-tour="member-profile-targets">
         <div className="flex items-center justify-between border-b border-border pb-2">
           <h4 className="text-xs font-semibold text-ink-primary flex items-center gap-1.5">
             <Sparkles className="w-3.5 h-3.5 text-brand" />

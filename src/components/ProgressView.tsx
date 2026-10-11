@@ -206,7 +206,7 @@ export function ProgressView() {
   return (
     <div className="space-y-6" data-tour="member-progress-content">
       {/* Top Progress Metrics */}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-4 gap-3" data-tour="member-progress-metrics">
         <div className="bg-surface rounded-lg border border-border p-3.5 shadow-hairline space-y-1">
           <div className="text-[11px] text-ink-muted">7-Day Adherence</div>
           <div className={`text-xl font-semibold ${cfg.adherence >= 80 ? "text-brand" : cfg.adherence > 50 ? "text-status-warning" : "text-status-danger"}`}>
@@ -240,7 +240,7 @@ export function ProgressView() {
       </div>
 
       {/* AI Diagnosis & Recommendation Card */}
-      <div className="bg-[#FAFBF9] border border-border rounded-lg p-4 shadow-hairline space-y-2">
+      <div className="bg-[#FAFBF9] border border-border rounded-lg p-4 shadow-hairline space-y-2" data-tour="member-progress-summary">
         <div className="flex items-center gap-2">
           <span className={`text-[10px] font-medium tracking-wide uppercase px-2 py-0.5 rounded ${cfg.badgeStyle}`}>
             {cfg.badge}
@@ -251,7 +251,7 @@ export function ProgressView() {
       </div>
 
       {/* 10-Day Historical Days Breakdown */}
-      <div className="bg-surface rounded-lg border border-border shadow-card overflow-hidden">
+      <div className="bg-surface rounded-lg border border-border shadow-card overflow-hidden" data-tour="member-progress-history">
         <div className="px-4 py-3 border-b border-border flex items-center justify-between">
           <div>
             <h3 className="text-xs font-semibold text-ink-primary">10-Day Adherence Log Review</h3>
@@ -572,7 +572,7 @@ function GoalProjectionsSection({
   const proj = getProjectionData();
 
   return (
-    <div className="bg-surface rounded-lg border border-border p-5 shadow-card space-y-4">
+    <div className="bg-surface rounded-lg border border-border p-5 shadow-card space-y-4" data-tour="member-progress-projections">
       <div className="flex items-center justify-between flex-wrap gap-2 border-b border-border pb-3">
         <div>
           <h3 className="text-xs font-semibold text-ink-primary">Forward-Looking Goal Projections</h3>

@@ -243,7 +243,7 @@ export function MealPlanView() {
   return (
     <div className="space-y-4">
       {/* Current Plan Badge & Baseline Parameters Banner */}
-      <div className="bg-surface rounded-lg border border-border p-3.5 shadow-hairline space-y-2.5">
+      <div className="bg-surface rounded-lg border border-border p-3.5 shadow-hairline space-y-2.5" data-tour="member-plan-goal">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-2 flex-wrap">
             {/* Goal Badge */}
@@ -292,97 +292,109 @@ export function MealPlanView() {
       </div>
 
       {/* Multi-Day Weekly Calorie Compensatory Rebalancing Banner & Agency Toggle */}
-      {weeklyRebalanceInfo.isSignificant && (
-        <div className="bg-surface rounded-lg border border-brand/40 bg-gradient-to-r from-brand-tint/40 to-surface p-3.5 shadow-hairline flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-start gap-2.5 max-w-xl">
-            <div className="w-5 h-5 rounded bg-brand text-white flex items-center justify-center shrink-0 mt-0.5">
-              <Sparkles className="w-3 h-3" />
-            </div>
-            <div className="space-y-0.5 text-xs">
-              <div className="font-semibold text-ink-primary flex items-center gap-2">
-                <span>Weekly Auto-Balance Active</span>
-                <span className="text-[10px] font-medium px-2 py-0.2 bg-brand-tint text-brand rounded border border-[#D5E6D2]">
-                  {weeklyRebalanceInfo.delta > 0 ? `+${weeklyRebalanceInfo.delta}` : weeklyRebalanceInfo.delta} kcal logged today
-                </span>
+      <div data-tour="member-plan-autobalance">
+        {weeklyRebalanceInfo.isSignificant ? (
+          <div className="bg-surface rounded-lg border border-brand/40 bg-gradient-to-r from-brand-tint/40 to-surface p-3.5 shadow-hairline flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-start gap-2.5 max-w-xl">
+              <div className="w-5 h-5 rounded bg-brand text-white flex items-center justify-center shrink-0 mt-0.5">
+                <Sparkles className="w-3 h-3" />
               </div>
-              <p className="text-ink-secondary text-[11px] leading-relaxed">
-                Daily targets adjusted by{" "}
-                <strong className="font-semibold text-brand">
-                  {weeklyRebalanceInfo.dailyAdjustment > 0 ? `+${weeklyRebalanceInfo.dailyAdjustment}` : weeklyRebalanceInfo.dailyAdjustment} kcal/day
-                </strong>{" "}
-                across the next {weeklyRebalanceInfo.remainingDaysCount} days to compensate for today&apos;s intake.
-              </p>
+              <div className="space-y-0.5 text-xs">
+                <div className="font-semibold text-ink-primary flex items-center gap-2">
+                  <span>Weekly Auto-Balance Active</span>
+                  <span className="text-[10px] font-medium px-2 py-0.2 bg-brand-tint text-brand rounded border border-[#D5E6D2]">
+                    {weeklyRebalanceInfo.delta > 0 ? `+${weeklyRebalanceInfo.delta}` : weeklyRebalanceInfo.delta} kcal logged today
+                  </span>
+                </div>
+                <p className="text-ink-secondary text-[11px] leading-relaxed">
+                  Daily targets adjusted by{" "}
+                  <strong className="font-semibold text-brand">
+                    {weeklyRebalanceInfo.dailyAdjustment > 0 ? `+${weeklyRebalanceInfo.dailyAdjustment}` : weeklyRebalanceInfo.dailyAdjustment} kcal/day
+                  </strong>{" "}
+                  across the next {weeklyRebalanceInfo.remainingDaysCount} days to compensate for today&apos;s intake.
+                </p>
+              </div>
             </div>
-          </div>
 
-          <div className="flex items-center gap-1.5 bg-surface-subtle p-0.5 rounded-lg border border-border shrink-0">
-            <button
-              type="button"
-              disabled={isApplyingWeeklySmoothing}
-              onClick={() => {
-                if (!isWeeklySmoothingApplied && !isApplyingWeeklySmoothing) {
-                  applyWeeklySmoothing();
-                }
-              }}
-              className={`text-[11px] font-medium px-2.5 py-1 rounded transition-all flex items-center gap-1.5 ${
-                isWeeklySmoothingApplied
-                  ? "bg-brand text-white shadow-hairline"
-                  : "text-ink-secondary hover:text-ink-primary"
-              } ${isApplyingWeeklySmoothing ? "opacity-60 cursor-not-allowed" : ""}`}
-            >
-              {isApplyingWeeklySmoothing && !isWeeklySmoothingApplied ? (
-                <>
-                  <RefreshCw className="w-3 h-3 animate-spin" />
-                  <span>Applying...</span>
-                </>
-              ) : (
-                <>
-                  {isWeeklySmoothingApplied && <Check className="w-3 h-3" />}
-                  <span>Apply weekly smoothing</span>
-                </>
-              )}
-            </button>
-            <button
-              type="button"
-              disabled={isApplyingWeeklySmoothing}
-              onClick={() => {
-                if (!isApplyingWeeklySmoothing) {
-                  keepOriginalTargets();
-                }
-              }}
-              className={`text-[11px] font-medium px-2.5 py-1 rounded transition-all flex items-center gap-1.5 ${
-                !isWeeklySmoothingApplied
-                  ? "bg-surface text-ink-primary shadow-hairline font-semibold"
-                  : "text-ink-muted hover:text-ink-primary"
-              } ${isApplyingWeeklySmoothing ? "opacity-60 cursor-not-allowed" : ""}`}
-            >
-              {isApplyingWeeklySmoothing && isWeeklySmoothingApplied ? (
-                <>
-                  <RefreshCw className="w-3 h-3 animate-spin" />
-                  <span>Restoring...</span>
-                </>
-              ) : (
-                <span>Keep original targets</span>
-              )}
-            </button>
-          </div>
+            <div className="flex items-center gap-1.5 bg-surface-subtle p-0.5 rounded-lg border border-border shrink-0">
+              <button
+                type="button"
+                disabled={isApplyingWeeklySmoothing}
+                onClick={() => {
+                  if (!isWeeklySmoothingApplied && !isApplyingWeeklySmoothing) {
+                    applyWeeklySmoothing();
+                  }
+                }}
+                className={`text-[11px] font-medium px-2.5 py-1 rounded transition-all flex items-center gap-1.5 ${
+                  isWeeklySmoothingApplied
+                    ? "bg-brand text-white shadow-hairline"
+                    : "text-ink-secondary hover:text-ink-primary"
+                } ${isApplyingWeeklySmoothing ? "opacity-60 cursor-not-allowed" : ""}`}
+              >
+                {isApplyingWeeklySmoothing && !isWeeklySmoothingApplied ? (
+                  <>
+                    <RefreshCw className="w-3 h-3 animate-spin" />
+                    <span>Applying...</span>
+                  </>
+                ) : (
+                  <>
+                    {isWeeklySmoothingApplied && <Check className="w-3 h-3" />}
+                    <span>Apply weekly smoothing</span>
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                disabled={isApplyingWeeklySmoothing}
+                onClick={() => {
+                  if (!isApplyingWeeklySmoothing) {
+                    keepOriginalTargets();
+                  }
+                }}
+                className={`text-[11px] font-medium px-2.5 py-1 rounded transition-all flex items-center gap-1.5 ${
+                  !isWeeklySmoothingApplied
+                    ? "bg-surface text-ink-primary shadow-hairline font-semibold"
+                    : "text-ink-muted hover:text-ink-primary"
+                } ${isApplyingWeeklySmoothing ? "opacity-60 cursor-not-allowed" : ""}`}
+              >
+                {isApplyingWeeklySmoothing && isWeeklySmoothingApplied ? (
+                  <>
+                    <RefreshCw className="w-3 h-3 animate-spin" />
+                    <span>Restoring...</span>
+                  </>
+                ) : (
+                  <span>Keep original targets</span>
+                )}
+              </button>
+            </div>
 
-          {weeklySmoothingError && (
-            <div className="w-full text-xs text-status-danger bg-[#FDF2F0] border border-[#F9D7D2] p-2 rounded mt-2">
-              {weeklySmoothingError}
+            {weeklySmoothingError && (
+              <div className="w-full text-xs text-status-danger bg-[#FDF2F0] border border-[#F9D7D2] p-2 rounded mt-2">
+                {weeklySmoothingError}
+              </div>
+            )}
+            {weeklySmoothingSuccess && !weeklySmoothingError && (
+              <div className="w-full text-xs text-brand bg-brand-tint border border-[#D5E6D2] p-2 rounded mt-2 flex items-center gap-1.5">
+                <Check className="w-3.5 h-3.5" />
+                <span>{weeklySmoothingSuccess}</span>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="bg-surface rounded-lg border border-border p-3.5 shadow-hairline flex items-center justify-between gap-4 flex-wrap text-xs">
+            <div className="flex items-center gap-2 text-ink-secondary">
+              <Sparkles className="w-3.5 h-3.5 text-brand" />
+              <span>Weekly Auto-Balance: Daily intake is on track. Rebalancing proposals activate if significant deviations occur.</span>
             </div>
-          )}
-          {weeklySmoothingSuccess && !weeklySmoothingError && (
-            <div className="w-full text-xs text-brand bg-brand-tint border border-[#D5E6D2] p-2 rounded mt-2 flex items-center gap-1.5">
-              <Check className="w-3.5 h-3.5" />
-              <span>{weeklySmoothingSuccess}</span>
-            </div>
-          )}
-        </div>
-      )}
+            <span className="text-[10px] text-brand bg-brand-tint px-2 py-0.5 rounded border border-[#D5E6D2] font-medium">
+              Balanced
+            </span>
+          </div>
+        )}
+      </div>
 
       {/* 7-Day Horizontal Selector */}
-      <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1" data-tour="member-plan-details">
         {days.map((d) => {
           const isSelected = selectedPlanDayOffset === d.offset;
           return (

@@ -84,76 +84,122 @@ async function runTestSuite() {
   );
 
   // -------------------------------------------------------------
-  // PART 2: Tour Entry Points & Accessibility
+  // PART 2: Welcome Onboarding Dialog & Persistence
   // -------------------------------------------------------------
-  console.log('\n--- PART 2: Tour Entry Points & Integration ---');
+  console.log('\n--- PART 2: Welcome Onboarding Dialog & Persistence ---');
+  const welcomeModalPath = path.resolve(__dirname, '../src/components/WelcomeTourModal.tsx');
+  assert(fs.existsSync(welcomeModalPath), 'WelcomeTourModal.tsx component file exists');
+  const welcomeModalContent = fs.readFileSync(welcomeModalPath, 'utf8');
+
+  // Verify Member welcome modal content
+  assert(
+    welcomeModalContent.includes('Welcome to NutriCoach!') &&
+    welcomeModalContent.includes('Make every meal count.') &&
+    welcomeModalContent.includes('Discover how to track your daily nutrition, plan your meals, monitor your progress, and get personalized nutrition guidance.'),
+    'WelcomeTourModal contains required Member App title, subtitle, and description'
+  );
+  assert(
+    welcomeModalContent.includes("Track today's calories and macros.") &&
+    welcomeModalContent.includes("Plan and adjust your meals.") &&
+    welcomeModalContent.includes("Stay on track with personalized guidance."),
+    'WelcomeTourModal contains the 3 Member preview items'
+  );
+
+  // Verify Coach workspace welcome modal content
+  assert(
+    welcomeModalContent.includes('Welcome to the NutriCoach Coach Workspace!') &&
+    welcomeModalContent.includes('Support your members more efficiently.') &&
+    welcomeModalContent.includes('Explore how to monitor member progress, review nutrition exceptions, and oversee AI-assisted recommendations.'),
+    'WelcomeTourModal contains required Coach Workspace title, subtitle, and description'
+  );
+  assert(
+    welcomeModalContent.includes('Monitor member adherence and progress.') &&
+    welcomeModalContent.includes('Review recommendations and exceptions.') &&
+    welcomeModalContent.includes('Keep human oversight of AI-assisted actions.'),
+    'WelcomeTourModal contains the 3 Coach preview items'
+  );
+
+  // Verify buttons and accessibility
+  assert(
+    welcomeModalContent.includes('Take a 2-minute tour') &&
+    welcomeModalContent.includes('Skip for now'),
+    'WelcomeTourModal features "Take a 2-minute tour" (primary) and "Skip for now" (secondary) buttons'
+  );
+  assert(
+    welcomeModalContent.includes('role="dialog"') &&
+    welcomeModalContent.includes('aria-modal="true"') &&
+    welcomeModalContent.includes('Escape'),
+    'WelcomeTourModal includes keyboard Escape dismissal and proper accessibility dialog roles'
+  );
+
+  // Check integration and persistence in MemberLayout and CoachLayout
   const memberLayoutPath = path.resolve(__dirname, '../src/components/MemberLayout.tsx');
   const memberLayoutContent = fs.readFileSync(memberLayoutPath, 'utf8');
+  assert(
+    memberLayoutContent.includes('WelcomeTourModal') &&
+    memberLayoutContent.includes('nutricoach_welcome_seen_member') &&
+    memberLayoutContent.includes('workspaceType="member"'),
+    'MemberLayout mounts WelcomeTourModal with local persistence key "nutricoach_welcome_seen_member"'
+  );
   assert(
     memberLayoutContent.includes('Take a Tour') &&
     memberLayoutContent.includes('AppTourModal') &&
     memberLayoutContent.includes('tourType="member"'),
-    'MemberLayout provides accessible "Take a Tour" button launching Member App Tour'
-  );
-
-  const memberSidebarPath = path.resolve(__dirname, '../src/components/MemberSidebar.tsx');
-  const memberSidebarContent = fs.readFileSync(memberSidebarPath, 'utf8');
-  assert(
-    memberSidebarContent.includes('Take a Tour') &&
-    memberSidebarContent.includes('Compass'),
-    'MemberSidebar provides accessible "Take a Tour" navigation action'
+    'MemberLayout preserves accessible "Take a Tour" button for reopening walkthrough at any time'
   );
 
   const coachLayoutPath = path.resolve(__dirname, '../src/components/CoachLayout.tsx');
   const coachLayoutContent = fs.readFileSync(coachLayoutPath, 'utf8');
   assert(
+    coachLayoutContent.includes('WelcomeTourModal') &&
+    coachLayoutContent.includes('nutricoach_welcome_seen_coach') &&
+    coachLayoutContent.includes('workspaceType="coach"'),
+    'CoachLayout mounts WelcomeTourModal with local persistence key "nutricoach_welcome_seen_coach"'
+  );
+  assert(
     coachLayoutContent.includes('Coach Workspace Tour') &&
     coachLayoutContent.includes('AppTourModal') &&
     coachLayoutContent.includes('tourType="coach"'),
-    'CoachLayout provides accessible "Coach Workspace Tour" button launching Coach Tour'
+    'CoachLayout preserves accessible "Coach Workspace Tour" button launching Coach Tour'
   );
 
   // -------------------------------------------------------------
-  // PART 3: In-App Tour Content, Flow & Read-Only Safety
+  // PART 3: In-App Tour Content, Section Grouping & Read-Only Safety
   // -------------------------------------------------------------
-  console.log('\n--- PART 3: In-App Tour Steps & Read-Only Guarantees ---');
-  assert(MEMBER_TOUR_STEPS.length >= 8, `Member Tour has ${MEMBER_TOUR_STEPS.length} verified steps (>= 8)`);
-  
-  const memberStepTitles = MEMBER_TOUR_STEPS.map(s => s.title);
-  assert(
-    memberStepTitles.some(t => t.toLowerCase().includes('dashboard') || t.toLowerCase().includes('overview')),
-    'Member tour explains Member Dashboard and daily overview'
-  );
-  assert(
-    memberStepTitles.some(t => t.toLowerCase().includes('meal plan')),
-    'Member tour explains Daily Meal Plan'
-  );
-  assert(
-    memberStepTitles.some(t => t.toLowerCase().includes('guardrail') || t.toLowerCase().includes('preference')),
-    'Member tour explains Dietary Preferences, Allergies & Intolerances guardrails'
-  );
-  assert(
-    memberStepTitles.some(t => t.toLowerCase().includes('logging') || t.toLowerCase().includes('log')),
-    'Member tour explains Meal Logging'
-  );
-  assert(
-    memberStepTitles.some(t => t.toLowerCase().includes('swap') || t.toLowerCase().includes('adaptive')),
-    'Member tour explains Meal Swaps and adaptive adjustments'
-  );
-  assert(
-    memberStepTitles.some(t => t.toLowerCase().includes('ask nutricoach') || t.toLowerCase().includes('assistant')),
-    'Member tour explains Ask NutriCoach evidence-based assistant'
-  );
-  assert(
-    memberStepTitles.some(t => t.toLowerCase().includes('progress')),
-    'Member tour explains Progress Tracking'
-  );
-  assert(
-    memberStepTitles.some(t => t.toLowerCase().includes('profile')),
-    'Member tour explains Profile Settings'
-  );
+  console.log('\n--- PART 3: In-App Tour Steps, Sections & Read-Only Guarantees ---');
+  assert(MEMBER_TOUR_STEPS.length === 15, `Member Tour has exactly 15 complete, easy-to-follow steps (found ${MEMBER_TOUR_STEPS.length})`);
 
-  assert(COACH_TOUR_STEPS.length >= 7, `Coach Tour has ${COACH_TOUR_STEPS.length} verified steps (>= 7)`);
+  // Verify Member sections: Today, Plan, Progress, Support, Profile
+  const todaySteps = MEMBER_TOUR_STEPS.filter(s => s.section === 'Today');
+  const planSteps = MEMBER_TOUR_STEPS.filter(s => s.section === 'Plan');
+  const progressSteps = MEMBER_TOUR_STEPS.filter(s => s.section === 'Progress');
+  const supportSteps = MEMBER_TOUR_STEPS.filter(s => s.section === 'Support');
+  const profileSteps = MEMBER_TOUR_STEPS.filter(s => s.section === 'Profile');
+
+  assert(todaySteps.length === 3, `Section 1: Today contains 3 steps (found ${todaySteps.length})`);
+  assert(planSteps.length === 3, `Section 2: Plan contains 3 steps (found ${planSteps.length})`);
+  assert(progressSteps.length === 4, `Section 3: Progress contains 4 steps (found ${progressSteps.length})`);
+  assert(supportSteps.length === 2, `Section 4: Support contains 2 steps (found ${supportSteps.length})`);
+  assert(profileSteps.length === 3, `Section 5: Profile contains 3 steps (found ${profileSteps.length})`);
+
+  // Check that every step has sectionStep and sectionTotal matching
+  const validSectionMeta = MEMBER_TOUR_STEPS.every(s => 
+    typeof s.sectionStep === 'number' &&
+    typeof s.sectionTotal === 'number' &&
+    s.sectionStep >= 1 &&
+    s.sectionStep <= s.sectionTotal
+  );
+  assert(validSectionMeta, 'All 15 Member tour steps include valid sectionStep and sectionTotal indicators');
+
+  // Verify NO hardcoded sample metric numbers in tour descriptions
+  const sampleMetricNumbers = ['96%', '94%', '10-day streak', '98% protein', '98%'];
+  const hasHardcodedMetricValues = MEMBER_TOUR_STEPS.some(s => 
+    sampleMetricNumbers.some(sm => s.description.includes(sm) || s.title.includes(sm))
+  );
+  assert(!hasHardcodedMetricValues, 'Member tour steps explain metric meanings without hardcoding sample values (e.g., no 96%, 94%, 10-day streak)');
+
+  // Verify Coach Workspace steps
+  assert(COACH_TOUR_STEPS.length === 7, `Coach Tour has 7 verified steps (found ${COACH_TOUR_STEPS.length})`);
   const coachStepTitles = COACH_TOUR_STEPS.map(s => s.title);
   assert(
     coachStepTitles.some(t => t.toLowerCase().includes('dashboard') || t.toLowerCase().includes('overview')),
@@ -172,16 +218,16 @@ async function runTestSuite() {
     'Coach tour explains Triage Queue & identifying members needing follow-up'
   );
   assert(
-    coachStepTitles.some(t => t.toLowerCase().includes('exception')),
-    'Coach tour explains Reviewing Exceptions & human escalation'
+    coachStepTitles.some(t => t.toLowerCase().includes('oversight') || t.toLowerCase().includes('action')),
+    'Coach tour explains Human Oversight & Approval of AI-Assisted Actions'
   );
   assert(
     coachStepTitles.some(t => t.toLowerCase().includes('messag') || t.toLowerCase().includes('communication')),
     'Coach tour explains Direct Coach Messaging & Templates'
   );
   assert(
-    coachStepTitles.some(t => t.toLowerCase().includes('economic') || t.toLowerCase().includes('roi') || t.toLowerCase().includes('activity') || t.toLowerCase().includes('operations')),
-    'Coach tour explains Business Impact / Agent Operations'
+    coachStepTitles.some(t => t.toLowerCase().includes('audit') || t.toLowerCase().includes('activity')),
+    'Coach tour explains Audit Trail & Operational Activity'
   );
 
   // Inspect AppTourModal code for Read-Only and Non-Blocking invariants

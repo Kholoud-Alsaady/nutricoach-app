@@ -244,7 +244,7 @@ export function MealsStream() {
   };
 
   return (
-    <div className="bg-surface rounded-lg border border-border p-4 shadow-card space-y-4">
+    <div className="bg-surface rounded-lg border border-border p-4 shadow-card space-y-4" data-tour="member-meal-stream">
       <div className="flex items-center justify-between">
         <h3 className="text-xs font-medium text-ink-primary">Today&apos;s Meal Stream</h3>
         <span className="text-[11px] text-ink-muted">

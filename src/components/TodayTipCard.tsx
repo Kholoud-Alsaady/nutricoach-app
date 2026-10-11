@@ -197,7 +197,7 @@ export function TodayTipCard() {
 
   return (
     <>
-      <div className="bg-surface rounded-lg border border-border p-4 shadow-card hover:border-brand/30 transition-all flex items-start justify-between gap-4">
+      <div className="bg-surface rounded-lg border border-border p-4 shadow-card hover:border-brand/30 transition-all flex items-start justify-between gap-4" data-tour="member-today-tip">
         <div className="space-y-1.5 flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-[10px] px-2 py-0.5 bg-brand-tint text-brand rounded font-medium border border-[#D5E6D2] uppercase tracking-wider">

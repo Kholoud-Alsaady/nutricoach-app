@@ -13,11 +13,38 @@ import { ProgressView } from "./ProgressView";
 import { MemberProfileView } from "./MemberProfileView";
 import { TodayTipCard } from "./TodayTipCard";
 import { AppTourModal } from "./AppTourModal";
+import { WelcomeTourModal } from "./WelcomeTourModal";
 import { useNutriCoach } from "./NutriCoachContext";
 
 export function MemberLayout() {
   const { state, activeProfile, setCurrentView, setActiveTab } = useNutriCoach();
   const [isTourOpen, setIsTourOpen] = useState(false);
+  const [isWelcomeOpen, setIsWelcomeOpen] = useState(false);
+
+  // Check if first entry to Member workspace
+  React.useEffect(() => {
+    if (typeof window !== "undefined") {
+      const seen = localStorage.getItem("nutricoach_welcome_seen_member");
+      if (!seen) {
+        setIsWelcomeOpen(true);
+      }
+    }
+  }, []);
+
+  const handleDismissWelcome = () => {
+    setIsWelcomeOpen(false);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("nutricoach_welcome_seen_member", "true");
+    }
+  };
+
+  const handleStartTourFromWelcome = () => {
+    setIsWelcomeOpen(false);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("nutricoach_welcome_seen_member", "true");
+    }
+    setIsTourOpen(true);
+  };
 
   const getGreeting = () => {
     const name = activeProfile?.name?.split(" ")[0] || "Athlete";
@@ -127,6 +154,14 @@ export function MemberLayout() {
         {/* Right Contextual Panel (340px) */}
         <AskNutriCoachPanel />
       </div>
+
+      {/* Welcome Onboarding Modal */}
+      <WelcomeTourModal
+        isOpen={isWelcomeOpen}
+        onClose={handleDismissWelcome}
+        onStartTour={handleStartTourFromWelcome}
+        workspaceType="member"
+      />
 
       {/* Interactive Read-Only Member App Tour Modal */}
       <AppTourModal
